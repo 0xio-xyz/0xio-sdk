@@ -5,20 +5,11 @@
 import { NetworkInfo } from '../types';
 
 export const NETWORKS: Record<string, NetworkInfo> = {
-  '0xio-testnet': {
-    id: '0xio-testnet',
-    name: '0xio Testnet',
-    rpcUrl: 'https://0xio.network',
-    explorerUrl: 'https://0xioscan.io/',
-    color: '#6366f1',
-    isTestnet: true
-  },
-  // Legacy network ID for backward compatibility
   'octra-testnet': {
     id: 'octra-testnet',
-    name: '0xio Testnet (Legacy)',
-    rpcUrl: 'https://0xio.network',
-    explorerUrl: 'https://0xioscan.io/',
+    name: 'Octra Testnet',
+    rpcUrl: 'https://octra.network',
+    explorerUrl: 'https://octrascan.io/',
     color: '#6366f1',
     isTestnet: true
   },
@@ -32,7 +23,7 @@ export const NETWORKS: Record<string, NetworkInfo> = {
   }
 };
 
-export const DEFAULT_NETWORK_ID = '0xio-testnet';
+export const DEFAULT_NETWORK_ID = 'octra-testnet';
 
 /**
  * Get network configuration by ID
