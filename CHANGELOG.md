@@ -2,6 +2,16 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [1.0.4] - 2025-10-23
+
+### Fixed
+- Fixed network configuration to use correct Octra Network RPC endpoint
+- Removed non-existent 0xio-testnet network configuration
+- Updated default network to octra-testnet with https://octra.network RPC
+- Updated explorer URL to https://octrascan.io/
+
+---
+
 ## [1.0.3] - 2025-10-04
 
 ### Changed
