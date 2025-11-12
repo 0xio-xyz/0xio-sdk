@@ -18,7 +18,7 @@ import {
   PrivateTransferData,
   PendingPrivateTransfer,
   ErrorCode,
-  OctraWalletError,
+  ZeroXIOWalletError,
   ConnectEvent,
   DisconnectEvent,
   BalanceChangedEvent,
@@ -27,7 +27,7 @@ import {
 import { getNetworkConfig, createDefaultBalance } from './config';
 import { createLogger } from './utils';
 
-export class OctraWallet extends EventEmitter {
+export class ZeroXIOWallet extends EventEmitter {
   private communicator: ExtensionCommunicator;
   private config: SDKConfig;
   private connectionInfo: ConnectionInfo = { isConnected: false };
@@ -44,7 +44,7 @@ export class OctraWallet extends EventEmitter {
       debug: config.debug || false
     };
 
-    this.logger = createLogger('OctraWallet', this.config.debug || false);
+    this.logger = createLogger('ZeroXIOWallet', this.config.debug || false);
     this.communicator = new ExtensionCommunicator(this.config.debug);
     
     this.logger.log('Wallet instance created with config:', this.config);
@@ -67,7 +67,7 @@ export class OctraWallet extends EventEmitter {
       // Initialize extension communication
       const communicationReady = await this.communicator.initialize();
       if (!communicationReady) {
-        throw new OctraWalletError(
+        throw new ZeroXIOWalletError(
           ErrorCode.EXTENSION_NOT_FOUND,
           'Failed to establish communication with 0xio Wallet extension'
         );
@@ -95,11 +95,11 @@ export class OctraWallet extends EventEmitter {
     } catch (error) {
       this.logger.error('Failed to initialize:', error);
       
-      if (error instanceof OctraWalletError) {
+      if (error instanceof ZeroXIOWalletError) {
         throw error;
       }
       
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.UNKNOWN_ERROR,
         'Failed to initialize SDK',
         error
@@ -157,11 +157,11 @@ export class OctraWallet extends EventEmitter {
     } catch (error) {
       this.logger.error('Connection failed:', error);
       
-      if (error instanceof OctraWalletError) {
+      if (error instanceof ZeroXIOWalletError) {
         throw error;
       }
       
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.CONNECTION_REFUSED,
         'Failed to connect to wallet',
         error
@@ -297,7 +297,7 @@ export class OctraWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get balance',
         error
@@ -334,7 +334,7 @@ export class OctraWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get network info',
         error
@@ -372,11 +372,11 @@ export class OctraWallet extends EventEmitter {
     } catch (error) {
       this.logger.error('Transaction failed:', error);
       
-      if (error instanceof OctraWalletError) {
+      if (error instanceof ZeroXIOWalletError) {
         throw error;
       }
       
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to send transaction',
         error
@@ -398,7 +398,7 @@ export class OctraWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get transaction history',
         error
@@ -420,7 +420,7 @@ export class OctraWallet extends EventEmitter {
       const result = await this.communicator.sendRequest('get_private_balance_info');
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.PERMISSION_DENIED,
         'Failed to get private balance info',
         error
@@ -444,7 +444,7 @@ export class OctraWallet extends EventEmitter {
       
       return result.success;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to encrypt balance',
         error
@@ -468,7 +468,7 @@ export class OctraWallet extends EventEmitter {
       
       return result.success;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to decrypt balance',
         error
@@ -494,7 +494,7 @@ export class OctraWallet extends EventEmitter {
       
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to send private transfer',
         error
@@ -512,7 +512,7 @@ export class OctraWallet extends EventEmitter {
       const result = await this.communicator.sendRequest('get_pending_private_transfers');
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get pending private transfers',
         error
@@ -540,7 +540,7 @@ export class OctraWallet extends EventEmitter {
       
       return result;
     } catch (error) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to claim private transfer',
         error
@@ -554,7 +554,7 @@ export class OctraWallet extends EventEmitter {
 
   private ensureInitialized(): void {
     if (!this.isInitialized) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.UNKNOWN_ERROR,
         'SDK not initialized. Call initialize() first.'
       );
@@ -565,7 +565,7 @@ export class OctraWallet extends EventEmitter {
     this.ensureInitialized();
     
     if (!this.connectionInfo.isConnected) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.CONNECTION_REFUSED,
         'Wallet not connected. Call connect() first.'
       );

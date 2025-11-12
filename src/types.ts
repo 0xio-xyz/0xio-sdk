@@ -164,14 +164,14 @@ export enum ErrorCode {
   UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
-export class OctraWalletError extends Error {
+export class ZeroXIOWalletError extends Error {
   constructor(
     public readonly code: ErrorCode,
     message: string,
     public readonly details?: any
   ) {
     super(message);
-    this.name = 'OctraWalletError';
+    this.name = 'ZeroXIOWalletError';
   }
 }
 

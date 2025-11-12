@@ -76,7 +76,7 @@ console.log('Connected!', connection.address);
 
 // Get balance
 const balance = await wallet.getBalance();
-console.log('Balance:', balance.total, '0XIO');
+console.log('Balance:', balance.total, 'OCT');
 
 // Send transaction
 const result = await wallet.sendTransaction({
@@ -101,7 +101,7 @@ const wallet = await createZeroXIOWallet({
 
 if (wallet.isConnected()) {
   const balance = await wallet.getBalance();
-  console.log('Balance:', balance.total, '0XIO');
+  console.log('Balance:', balance.total, 'OCT');
 }
 ```
 
@@ -228,9 +228,9 @@ import {
 } from '@0xgery/0xio-sdk';
 
 // Example usage
-const isValid = isValidAddress('0XIOxyz123...');
-const formatted = formatZeroXIO(123.456789, 2); // "123.46"
-const shortAddr = formatAddress('0XIOxyz123...abc', 6, 4); // "0XIOxyz...abc"
+const isValid = isValidAddress('octxyz123...');
+const formatted = formatOCT(123.456789, 2); // "123.46"
+const shortAddr = formatAddress('octxyz123...abc', 6, 4); // "octxyz...abc"
 ```
 
 ### Development & Debugging Tools
@@ -333,7 +333,7 @@ function WalletConnector() {
       ) : (
         <div>
           <p>Connected: {address}</p>
-          <p>Balance: {balance} 0XIO</p>
+          <p>Balance: {balance} Oct</p>
           <button onClick={() => wallet.disconnect()}>Disconnect</button>
           <button onClick={sendTransaction}>Send Test Transaction</button>
         </div>
@@ -360,7 +360,7 @@ export default WalletConnector;
 
     <div v-else>
       <p>Connected: {{ address }}</p>
-      <p>Balance: {{ balance }} 0XIO</p>
+      <p>Balance: {{ balance }} OCT</p>
       <button @click="disconnect">Disconnect</button>
       <button @click="sendTransaction">Send Test Transaction</button>
     </div>
@@ -465,7 +465,7 @@ export default {
                 // Setup event listeners
                 wallet.on('connect', (event) => {
                     document.getElementById('connection-status').textContent =
-                        `Connected: ${event.address} (${event.balance.total} 0XIO)`;
+                        `Connected: ${event.address} (${event.balance.total} OCT)`;
                     document.getElementById('connect-btn').style.display = 'none';
                     document.getElementById('disconnect-btn').style.display = 'inline';
                     document.getElementById('send-btn').style.display = 'inline';

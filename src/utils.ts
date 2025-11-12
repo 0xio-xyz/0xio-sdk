@@ -3,14 +3,14 @@
  * Helper functions for validation, formatting, and common operations
  */
 
-import { ErrorCode, OctraWalletError } from './types';
+import { ErrorCode, ZeroXIOWalletError } from './types';
 
 // ===================
 // VALIDATION UTILITIES
 // ===================
 
 /**
- * Validate Octra wallet address
+ * Validate wallet address for Octra blockchain
  */
 export function isValidAddress(address: string): boolean {
   if (!address || typeof address !== 'string') {
@@ -136,7 +136,7 @@ export function formatTxHash(hash: string, length = 12): string {
  */
 export function toMicroOCT(amount: number): string {
   if (!isValidAmount(amount)) {
-    throw new OctraWalletError(
+    throw new ZeroXIOWalletError(
       ErrorCode.INVALID_AMOUNT,
       'Invalid amount for conversion'
     );
@@ -154,7 +154,7 @@ export function fromMicroOCT(microAmount: string | number): number {
   const amount = typeof microAmount === 'string' ? parseInt(microAmount, 10) : microAmount;
   
   if (!Number.isFinite(amount) || amount < 0) {
-    throw new OctraWalletError(
+    throw new ZeroXIOWalletError(
       ErrorCode.INVALID_AMOUNT,
       'Invalid micro OCT amount for conversion'
     );
@@ -194,7 +194,7 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
  * Check if error is a specific type
  */
 export function isErrorType(error: any, code: ErrorCode): boolean {
-  return error instanceof OctraWalletError && error.code === code;
+  return error instanceof ZeroXIOWalletError && error.code === code;
 }
 
 // ===================
@@ -247,7 +247,7 @@ export function withTimeout<T>(
 ): Promise<T> {
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
-      reject(new OctraWalletError(
+      reject(new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         timeoutMessage
       ));

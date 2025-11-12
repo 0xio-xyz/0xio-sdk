@@ -16,12 +16,12 @@
  * await wallet.connect();
  *
  * const balance = await wallet.getBalance();
- * console.log('Balance:', balance.total, '0XIO');
+ * console.log('Balance:', balance.total, 'OCT');
  * ```
  */
 
 // Main exports
-export { OctraWallet, OctraWallet as ZeroXIOWallet } from './wallet';
+export { ZeroXIOWallet } from './wallet';
 export { EventEmitter } from './events';
 export { ExtensionCommunicator } from './communication';
 
@@ -67,7 +67,7 @@ export type {
 } from './types';
 
 // Error exports
-export { ErrorCode, OctraWalletError, OctraWalletError as ZeroXIOWalletError } from './types';
+export { ErrorCode, ZeroXIOWalletError } from './types';
 
 // Configuration exports
 export { 
@@ -125,15 +125,15 @@ export const SDK_VERSION = '0.2.1';
 export const SUPPORTED_EXTENSION_VERSIONS = ['1.0.0', '1.0.1', '1.0.2'];
 
 // Quick setup function for simple use cases
-export async function createOctraWallet(config: {
+export async function createZeroXIOWallet(config: {
   appName: string;
   appDescription?: string;
   debug?: boolean;
   autoConnect?: boolean;
 }) {
-  const { OctraWallet } = await import('./wallet');
+  const { ZeroXIOWallet } = await import('./wallet');
 
-  const wallet = new OctraWallet({
+  const wallet = new ZeroXIOWallet({
     appName: config.appName,
     appDescription: config.appDescription,
     debug: config.debug || false
@@ -155,8 +155,8 @@ export async function createOctraWallet(config: {
   return wallet;
 }
 
-// Alias for new branding
-export const createZeroXIOWallet = createOctraWallet;
+// Legacy alias for backward compatibility
+export const createOctraWallet = createZeroXIOWallet;
 
 // Browser detection and compatibility check
 export function checkSDKCompatibility(): {

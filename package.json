@@ -2,7 +2,7 @@
   "name": "@0xgery/0xio-sdk",
   "version": "1.0.4",
   "type": "module",
-  "description": "Official TypeScript SDK for 0xio Wallet - Secure blockchain integration for dApps",
+  "description": "Official TypeScript SDK for 0xio Wallet - Secure Octra blockchain integration for dApps",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "browser": "dist/index.umd.js",

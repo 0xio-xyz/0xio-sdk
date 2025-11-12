@@ -14,7 +14,7 @@ import {
   ExtensionRequest,
   ExtensionResponse,
   ErrorCode,
-  OctraWalletError
+  ZeroXIOWalletError
 } from './types';
 import { retry, withTimeout, createLogger } from './utils';
 import { EventEmitter } from './events';
@@ -103,7 +103,7 @@ export class ExtensionCommunicator extends EventEmitter {
    * Must be called before any other methods.
    *
    * @returns {Promise<boolean>} True if initialization succeeded, false otherwise
-   * @throws {OctraWalletError} If extension is not available after timeout
+   * @throws {ZeroXIOWalletError} If extension is not available after timeout
    *
    * @example
    * ```typescript
@@ -171,7 +171,7 @@ export class ExtensionCommunicator extends EventEmitter {
     timeout = 30000
   ): Promise<T> {
     if (!this.hasExtensionContext()) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.EXTENSION_NOT_FOUND,
         '0xio Wallet extension is not installed or available',
         {
@@ -187,7 +187,7 @@ export class ExtensionCommunicator extends EventEmitter {
       await this.waitForExtensionAvailability(5000);
       
       if (!this.isExtensionAvailableState) {
-        throw new OctraWalletError(
+        throw new ZeroXIOWalletError(
           ErrorCode.EXTENSION_NOT_FOUND,
           'Extension not available for communication',
           {
@@ -219,7 +219,7 @@ export class ExtensionCommunicator extends EventEmitter {
           const pending = this.pendingRequests.get(requestId);
           if (pending) {
             this.pendingRequests.delete(requestId);
-            reject(new OctraWalletError(
+            reject(new ZeroXIOWalletError(
               ErrorCode.NETWORK_ERROR,
               `Request timeout after ${timeout}ms`,
               { 
@@ -322,7 +322,7 @@ export class ExtensionCommunicator extends EventEmitter {
     } else {
       const error = response.error;
       if (error) {
-        const enhancedError = new OctraWalletError(
+        const enhancedError = new ZeroXIOWalletError(
           error.code,
           error.message,
           {
@@ -335,7 +335,7 @@ export class ExtensionCommunicator extends EventEmitter {
         );
         pending.reject(enhancedError);
       } else {
-        pending.reject(new OctraWalletError(
+        pending.reject(new ZeroXIOWalletError(
           ErrorCode.UNKNOWN_ERROR,
           'Unknown error occurred',
           {
@@ -372,7 +372,7 @@ export class ExtensionCommunicator extends EventEmitter {
    * Check and enforce rate limits to prevent denial-of-service attacks
    *
    * @private
-   * @throws {OctraWalletError} RATE_LIMIT_EXCEEDED if limits are exceeded
+   * @throws {ZeroXIOWalletError} RATE_LIMIT_EXCEEDED if limits are exceeded
    *
    * @description
    * Implements two-tier rate limiting:
@@ -391,7 +391,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
     // ✅ SECURITY: Check concurrent request limit
     if (this.pendingRequests.size >= this.MAX_CONCURRENT_REQUESTS) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.RATE_LIMIT_EXCEEDED,
         `Too many concurrent requests (max: ${this.MAX_CONCURRENT_REQUESTS})`
       );
@@ -403,7 +403,7 @@ export class ExtensionCommunicator extends EventEmitter {
     );
 
     if (this.requestTimestamps.length >= this.MAX_REQUESTS_PER_WINDOW) {
-      throw new OctraWalletError(
+      throw new ZeroXIOWalletError(
         ErrorCode.RATE_LIMIT_EXCEEDED,
         `Too many requests per second (max: ${this.MAX_REQUESTS_PER_WINDOW} per ${this.RATE_LIMIT_WINDOW}ms)`
       );
@@ -542,7 +542,7 @@ export class ExtensionCommunicator extends EventEmitter {
       origin: window.location?.origin,
       extensionDetection: {
         hasOctraExtension: !!win.__OCTRA_EXTENSION__,
-        hasOctraWallet: !!win.octraWallet,
+        hasZeroXIOWallet: !!win.octraWallet,
         hasChromeRuntimeId: !!(win.chrome?.runtime?.id),
         hasMetaTag: !!document.querySelector('meta[name=\"octra-extension\"]'),
         hasDataAttribute: !!document.querySelector('[data-octra-extension]')
@@ -574,7 +574,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
     for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
-      pending.reject(new OctraWalletError(
+      pending.reject(new ZeroXIOWalletError(
         ErrorCode.UNKNOWN_ERROR,
         'SDK cleanup called'
       ));
