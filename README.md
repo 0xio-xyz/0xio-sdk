@@ -26,9 +26,17 @@ The 0xio Wallet SDK bridges the gap between web applications and blockchain func
 
 > **Disclaimer**: This is an unofficial, community-built project for the Octra Network. It is not affiliated with, endorsed by, or maintained by the official Octra team.
 
-> **Note**: This SDK is developed by NullxGery (0xGery) for the Octra Network ecosystem.
+> **Note**: This SDK is developed by 0xio Team for the Octra Network ecosystem.
 
-## What's New in v1.0.0
+## What's New in v2.0.1
+
+**Breaking Changes & Rebranding:**
+
+- **Rebranded message protocol**: Changed from `octra-sdk-*` to `0xio-sdk-*` for consistency
+- **Organization migration**: Moved from personal to organization repository
+- **Requires**: 0xio Wallet extension v2.0+ for compatibility
+
+**Previous Major Release - v1.0.0**
 
 **Major Performance & Reliability Improvements:**
 
@@ -53,7 +61,7 @@ npm install @0xgery/0xio-sdk
 yarn add @0xgery/0xio-sdk
 
 # CDN (for quick testing)
-<script src="https://unpkg.com/@0xgery/0xio-sdk@1.0.0/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xgery/0xio-sdk@2.0.1/dist/index.umd.js"></script>
 ```
 
 ### Basic Usage
@@ -541,7 +549,7 @@ if (!isValidAmount(amount)) {
 
 ### 2. Enhanced Error Handling
 ```typescript
-import { OctraWalletError, ErrorCode, isErrorType } from '@0xgery/0xio-sdk';
+import { ZeroXIOWalletError, ErrorCode, isErrorType } from '@0xgery/0xio-sdk';
 
 try {
   await wallet.sendTransaction(txData);
@@ -553,7 +561,7 @@ try {
   } else if (isErrorType(error, ErrorCode.EXTENSION_NOT_FOUND)) {
     // Enhanced diagnostics available
     console.error('Extension not found. Details:', error.details);
-    alert('Please install Octra Wallet extension');
+    alert('Please install 0xio Wallet extension');
   } else {
     // All errors now include detailed context
     console.error('Transaction failed:', {
@@ -584,7 +592,7 @@ if (networkInfo.id !== 'mainnet') {
 
 ### Building from Source
 ```bash
-git clone https://github.com/0xGery/0xio-sdk.git
+git clone https://github.com/0xio-xyz/0xio-sdk.git
 cd 0xio-sdk
 npm install
 npm run build
@@ -630,10 +638,11 @@ import {
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/0xGery/0xio-sdk/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/0xGery/0xio-sdk/discussions)
-- **Developer**: NullxGery (0xGery)
-- **Contact**: [Telegram](https://t.me/nullXgery)
+- **Issues**: [GitHub Issues](https://github.com/0xio-xyz/0xio-sdk/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/0xio-xyz/0xio-sdk/discussions)
+- **Team**: 0xio Team
+- **Email**: team@0xio.xyz
+- **Website**: [0xio.xyz](https://0xio.xyz)
 
 ## License
 
@@ -641,4 +650,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-Built by NullxGery (0xGery) for the Octra Network
+Built by 0xio Team for the Octra Network
