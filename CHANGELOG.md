@@ -2,6 +2,30 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.0.1] - 2025-11-24
+
+### Breaking Changes
+- **Rebranded message sources**: Changed from `octra-sdk-*` to `0xio-sdk-*` for consistency with 0xio branding
+  - `octra-sdk-request` → `0xio-sdk-request`
+  - `octra-sdk-bridge` → `0xio-sdk-bridge`
+- This is a breaking change that requires wallet extension v2.0+ for compatibility
+
+### Changed
+- Updated package metadata to reflect 0xio Team ownership
+- Changed author from "NullxGery" to "0xio Team"
+- Updated author email from "0xgery@proton.me" to "team@0xio.xyz"
+- Updated repository URL from `0xGery/0xio-sdk` to `0xio-xyz/0xio-sdk`
+- Updated keywords: "0xio" → "0xio wallet", added "octra wallet"
+- Author URL changed to organization: `https://github.com/0xio-xyz`
+
+### Migration Guide
+To upgrade from v1.x to v2.x:
+1. Update SDK: `npm install @0xgery/0xio-sdk@^2.0.0`
+2. Update 0xio Wallet extension to v2.0 or higher
+3. No code changes required - API remains unchanged
+
+---
+
 ## [1.0.4] - 2025-10-23
 
 ### Fixed

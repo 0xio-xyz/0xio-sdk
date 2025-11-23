@@ -226,7 +226,7 @@ if (typeof window !== 'undefined') {
       }),
       simulateExtensionEvent: (eventType: string, data: any) => {
         window.postMessage({
-          source: 'octra-sdk-bridge',
+          source: '0xio-sdk-bridge',
           event: { type: eventType, data }
         }, '*');
         console.log('[0xio SDK] Simulated extension event:', eventType, data);

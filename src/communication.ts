@@ -270,7 +270,7 @@ export class ExtensionCommunicator extends EventEmitter {
       }
 
       // Check if it's a 0xio SDK response
-      if (!event.data || event.data.source !== 'octra-sdk-bridge') {
+      if (!event.data || event.data.source !== '0xio-sdk-bridge') {
         return;
       }
 
@@ -355,7 +355,7 @@ export class ExtensionCommunicator extends EventEmitter {
     // ✅ SECURITY: Use specific origin instead of wildcard
     const targetOrigin = window.location.origin;
     window.postMessage({
-      source: 'octra-sdk-request',
+      source: '0xio-sdk-request',
       request
     }, targetOrigin);
   }

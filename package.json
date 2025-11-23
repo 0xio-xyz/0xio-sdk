@@ -1,6 +1,6 @@
 {
   "name": "@0xgery/0xio-sdk",
-  "version": "1.0.5",
+  "version": "2.0.1",
   "type": "module",
   "description": "Official TypeScript SDK for 0xio Wallet - Secure Octra blockchain integration for dApps",
   "main": "dist/index.js",
@@ -23,8 +23,8 @@
     "prepublishOnly": "npm run build && npm run typecheck"
   },
   "keywords": [
-    "0xio",
-    "wallet",
+    "0xio wallet",
+    "octra wallet",
     "blockchain",
     "octra",
     "dapp",
@@ -36,19 +36,19 @@
     "web3-sdk"
   ],
   "author": {
-    "name": "NullxGery",
-    "email": "0xgery@proton.me",
-    "url": "https://github.com/0xGery"
+    "name": "0xio Team",
+    "email": "team@0xio.xyz",
+    "url": "https://github.com/0xio-xyz"
   },
   "license": "MIT",
   "homepage": "https://0xio.xyz",
   "bugs": {
-    "url": "https://github.com/0xGery/0xio-sdk/issues",
-    "email": "0xgery@proton.me"
+    "url": "https://github.com/0xio-xyz/0xio-sdk/issues",
+    "email": "team@0xio.xyz"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xGery/0xio-sdk.git"
+    "url": "git+https://github.com/0xio-xyz/0xio-sdk.git"
   },
   "publishConfig": {
     "access": "public",
