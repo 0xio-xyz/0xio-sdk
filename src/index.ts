@@ -121,8 +121,8 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '0.2.1';
-export const SUPPORTED_EXTENSION_VERSIONS = ['1.0.0', '1.0.1', '1.0.2'];
+export const SDK_VERSION = '1.0.0-alpha.1';
+export const SUPPORTED_EXTENSION_VERSIONS = ['2.0.1', '2.0.3', '2.0.4'];
 
 // Quick setup function for simple use cases
 export async function createZeroXIOWallet(config: {

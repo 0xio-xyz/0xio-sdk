@@ -5,13 +5,13 @@
 import { NetworkInfo } from '../types';
 
 export const NETWORKS: Record<string, NetworkInfo> = {
-  'octra-testnet': {
-    id: 'octra-testnet',
-    name: 'Octra Testnet',
+  'mainnet': {
+    id: 'mainnet',
+    name: 'Octra Mainnet Alpha',
     rpcUrl: 'https://octra.network',
     explorerUrl: 'https://octrascan.io/',
     color: '#6366f1',
-    isTestnet: true
+    isTestnet: false
   },
   'custom': {
     id: 'custom',
@@ -23,7 +23,7 @@ export const NETWORKS: Record<string, NetworkInfo> = {
   }
 };
 
-export const DEFAULT_NETWORK_ID = 'octra-testnet';
+export const DEFAULT_NETWORK_ID = 'mainnet';
 
 /**
  * Get network configuration by ID

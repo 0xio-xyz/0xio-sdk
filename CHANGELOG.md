@@ -2,6 +2,17 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.0.2] - 2025-12-22
+
+### Breaking Changes
+- **Network Migration**: Default network changed from `octra-testnet` to `mainnet`.
+- **Testnet Removal**: Removed hardcoded Testnet configuration.
+- **Compatibility**: SDK now strictly requires Extension versions `2.0.1`, `2.0.3`, or `2.0.4`.
+
+### Changed
+- Updated `NETWORKS` configuration to point to Octra Mainnet Alpha (`https://octra.network`).
+- `isTestnet` flag set to `false` by default.
+
 ## [2.0.1] - 2025-11-24
 
 ### Breaking Changes

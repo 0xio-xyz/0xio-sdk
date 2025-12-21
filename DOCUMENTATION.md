@@ -26,7 +26,7 @@ The 0xio SDK provides a comprehensive toolkit for building decentralized applica
 - **Transaction Management** - Send public and private transactions
 - **Balance Queries** - Read public and encrypted private balances
 - **Event System** - Real-time updates for all wallet events
-- **Network Management** - Support for testnet and custom networks
+- **Network Management** - Support for Mainnet Alpha and custom networks
 - **Type Safety** - Full TypeScript definitions
 - **Framework Agnostic** - Works with React, Vue, Svelte, or vanilla JS
 
