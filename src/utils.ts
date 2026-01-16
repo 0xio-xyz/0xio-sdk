@@ -27,10 +27,10 @@ export function isValidAddress(address: string): boolean {
  * Validate transaction amount
  */
 export function isValidAmount(amount: number): boolean {
-  return typeof amount === 'number' && 
-         amount > 0 && 
-         Number.isFinite(amount) &&
-         amount <= Number.MAX_SAFE_INTEGER;
+  return typeof amount === 'number' &&
+    amount > 0 &&
+    Number.isFinite(amount) &&
+    amount <= Number.MAX_SAFE_INTEGER;
 }
 
 /**
@@ -40,7 +40,7 @@ export function isValidNetworkId(networkId: string): boolean {
   if (!networkId || typeof networkId !== 'string') {
     return false;
   }
-  
+
   const validNetworks = ['mainnet', 'testnet', 'devnet'];
   return validNetworks.includes(networkId.toLowerCase());
 }
@@ -52,13 +52,13 @@ export function isValidMessage(message: string): boolean {
   if (!message) {
     return true; // Empty messages are valid
   }
-  
+
   if (typeof message !== 'string') {
     return false;
   }
-  
+
   // Check length (adjust based on network limits)
-  return message.length <= 280; // Twitter-like limit
+  return message.length <= 280;
 }
 
 /**
@@ -79,7 +79,7 @@ export function formatOCT(amount: number, decimals = 6): string {
   if (!isValidAmount(amount)) {
     return '0';
   }
-  
+
   return amount.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals
@@ -93,11 +93,11 @@ export function formatAddress(address: string, prefixLength = 6, suffixLength = 
   if (!isValidAddress(address)) {
     return 'Invalid Address';
   }
-  
+
   if (address.length <= prefixLength + suffixLength) {
     return address;
   }
-  
+
   return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
 }
 
@@ -116,14 +116,14 @@ export function formatTxHash(hash: string, length = 12): string {
   if (!hash || typeof hash !== 'string') {
     return 'Invalid Hash';
   }
-  
+
   if (hash.length <= length) {
     return hash;
   }
-  
+
   const prefixLength = Math.ceil(length / 2);
   const suffixLength = Math.floor(length / 2);
-  
+
   return `${hash.slice(0, prefixLength)}...${hash.slice(-suffixLength)}`;
 }
 
@@ -141,7 +141,7 @@ export function toMicroOCT(amount: number): string {
       'Invalid amount for conversion'
     );
   }
-  
+
   // Assuming OCT has 6 decimal places like many cryptocurrencies
   const microOCT = Math.round(amount * 1_000_000);
   return microOCT.toString();
@@ -152,14 +152,14 @@ export function toMicroOCT(amount: number): string {
  */
 export function fromMicroOCT(microAmount: string | number): number {
   const amount = typeof microAmount === 'string' ? parseInt(microAmount, 10) : microAmount;
-  
+
   if (!Number.isFinite(amount) || amount < 0) {
     throw new ZeroXIOWalletError(
       ErrorCode.INVALID_AMOUNT,
       'Invalid micro OCT amount for conversion'
     );
   }
-  
+
   return amount / 1_000_000;
 }
 
@@ -185,7 +185,7 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.RATE_LIMIT_EXCEEDED]: 'Rate limit exceeded, please try again later',
     [ErrorCode.UNKNOWN_ERROR]: 'An unknown error occurred'
   };
-  
+
   const baseMessage = baseMessages[code] || 'Unknown error';
   return context ? `${baseMessage}: ${context}` : baseMessage;
 }
@@ -217,23 +217,23 @@ export async function retry<T>(
   baseDelay = 1000
 ): Promise<T> {
   let lastError: Error;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error) {
       lastError = error as Error;
-      
+
       if (attempt === maxRetries) {
         break; // Last attempt failed
       }
-      
+
       // Exponential backoff: 1s, 2s, 4s, etc.
       const delayMs = baseDelay * Math.pow(2, attempt);
       await delay(delayMs);
     }
   }
-  
+
   throw lastError!;
 }
 
@@ -253,7 +253,7 @@ export function withTimeout<T>(
       ));
     }, timeoutMs);
   });
-  
+
   return Promise.race([promise, timeoutPromise]);
 }
 
@@ -276,25 +276,25 @@ export function checkBrowserSupport(): {
   missingFeatures: string[];
 } {
   const missingFeatures: string[] = [];
-  
+
   if (!isBrowser()) {
     missingFeatures.push('Browser environment');
     return { supported: false, missingFeatures };
   }
-  
+
   // Check for required browser APIs
   if (typeof window.postMessage !== 'function') {
     missingFeatures.push('PostMessage API');
   }
-  
+
   if (typeof window.addEventListener !== 'function') {
     missingFeatures.push('Event Listeners');
   }
-  
+
   if (typeof Promise === 'undefined') {
     missingFeatures.push('Promise support');
   }
-  
+
   return {
     supported: missingFeatures.length === 0,
     missingFeatures

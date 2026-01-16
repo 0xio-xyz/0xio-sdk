@@ -34,14 +34,14 @@ export type {
   ConnectionInfo,
   ConnectOptions,
   SDKConfig,
-  
+
   // Transaction types
   TransactionData,
   SignedTransaction,
   TransactionResult,
   TransactionHistory,
   Transaction,
-  
+
   // Event types
   WalletEventType,
   WalletEvent,
@@ -52,15 +52,15 @@ export type {
   NetworkChangedEvent,
   TransactionConfirmedEvent,
   ErrorEvent,
-  
+
   // Private balance types
   PrivateBalanceInfo,
   PrivateTransferData,
   PendingPrivateTransfer,
-  
+
   // Permission types
   Permission,
-  
+
   // Communication types
   ExtensionRequest,
   ExtensionResponse
@@ -70,12 +70,12 @@ export type {
 export { ErrorCode, ZeroXIOWalletError } from './types';
 
 // Configuration exports
-export { 
-  NETWORKS, 
-  DEFAULT_NETWORK_ID, 
+export {
+  NETWORKS,
+  DEFAULT_NETWORK_ID,
   SDK_CONFIG,
-  getNetworkConfig, 
-  getAllNetworks, 
+  getNetworkConfig,
+  getAllNetworks,
   getDefaultNetwork,
   createDefaultBalance
 } from './config';
@@ -88,7 +88,7 @@ export {
   isValidMessage,
   isValidFeeLevel,
   isValidNetworkId,
-  
+
   // Formatting utilities
   formatOCT,
   formatOCT as formatZeroXIO,
@@ -101,27 +101,27 @@ export {
   toMicroOCT as toMicroZeroXIO,
   fromMicroOCT,
   fromMicroOCT as fromMicroZeroXIO,
-  
+
   // Error utilities
   createErrorMessage,
   isErrorType,
-  
+
   // Async utilities
   delay,
   retry,
   withTimeout,
-  
+
   // Browser utilities
   isBrowser,
   checkBrowserSupport,
-  
+
   // Development utilities
   generateMockData,
   createLogger
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '1.0.0-alpha.1';
+export const SDK_VERSION = '2.1.1';
 export const SUPPORTED_EXTENSION_VERSIONS = ['2.0.1', '2.0.3', '2.0.4'];
 
 // Quick setup function for simple use cases
@@ -166,13 +166,13 @@ export function checkSDKCompatibility(): {
 } {
   const issues: string[] = [];
   const recommendations: string[] = [];
-  
+
   // Basic browser support check
   if (typeof window === 'undefined') {
     issues.push('Window object not available');
     recommendations.push('SDK must be used in a browser environment');
   }
-  
+
   // Check for extension APIs
   if (typeof window !== 'undefined') {
     const win = window as any;
@@ -181,7 +181,7 @@ export function checkSDKCompatibility(): {
       recommendations.push('This SDK requires a Chromium-based browser (Chrome, Edge, Brave, etc.)');
     }
   }
-  
+
   return {
     compatible: issues.length === 0,
     issues,
@@ -197,9 +197,9 @@ if (typeof window !== 'undefined') {
 
   // Development mode detection
   const isDevelopment = process.env.NODE_ENV === 'development' ||
-                       window.location.hostname === 'localhost' ||
-                       window.location.hostname === '127.0.0.1' ||
-                       window.location.hostname.includes('dev');
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.includes('dev');
 
   if (isDevelopment) {
     // Set debug flag but don't automatically log
@@ -241,8 +241,8 @@ if (typeof window !== 'undefined') {
     (window as any).__OCTRA_SDK_UTILS__ = (window as any).__ZEROXIO_SDK_UTILS__;
 
     // Only show welcome message if specifically requested or on localhost
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      (window as any).__ZEROXIO_SDK_UTILS__.showWelcome();
-    }
+    // if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    //   (window as any).__ZEROXIO_SDK_UTILS__.showWelcome();
+    // }
   }
 }
