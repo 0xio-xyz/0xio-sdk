@@ -456,10 +456,27 @@ export class ExtensionCommunicator extends EventEmitter {
   private startExtensionDetection(): void {
     if (typeof window === 'undefined') return;
 
-    // Initial check
+    // Listen for extension ready event (instant detection)
+    window.addEventListener('0xioWalletReady', () => {
+      this.logger.log('Received 0xioWalletReady event');
+      this.isExtensionAvailableState = true;
+    });
+
+    // Also listen for legacy event names
+    window.addEventListener('wallet0xioReady', () => {
+      this.logger.log('Received wallet0xioReady event');
+      this.isExtensionAvailableState = true;
+    });
+
+    window.addEventListener('octraWalletReady', () => {
+      this.logger.log('Received octraWalletReady event');
+      this.isExtensionAvailableState = true;
+    });
+
+    // Initial check (in case extension was already injected)
     this.checkExtensionAvailability();
 
-    // Set up periodic checks
+    // Set up periodic checks as fallback
     this.extensionDetectionInterval = setInterval(() => {
       this.checkExtensionAvailability();
     }, 2000);
@@ -514,19 +531,48 @@ export class ExtensionCommunicator extends EventEmitter {
     }
 
     return new Promise((resolve) => {
+      let resolved = false;
       const startTime = Date.now();
+
+      // Cleanup function
+      const cleanup = () => {
+        clearInterval(checkInterval);
+        window.removeEventListener('0xioWalletReady', onReady);
+        window.removeEventListener('wallet0xioReady', onReady);
+        window.removeEventListener('octraWalletReady', onReady);
+      };
+
+      // Event handler for instant resolution
+      const onReady = () => {
+        if (resolved) return;
+        resolved = true;
+        this.isExtensionAvailableState = true;
+        cleanup();
+        resolve(true);
+      };
+
+      // Listen for extension ready events
+      window.addEventListener('0xioWalletReady', onReady);
+      window.addEventListener('wallet0xioReady', onReady);
+      window.addEventListener('octraWalletReady', onReady);
+
+      // Polling fallback with shorter interval
       const checkInterval = setInterval(() => {
+        if (resolved) return;
+
         if (this.isExtensionAvailableState) {
-          clearInterval(checkInterval);
+          resolved = true;
+          cleanup();
           resolve(true);
           return;
         }
 
         if (Date.now() - startTime >= timeoutMs) {
-          clearInterval(checkInterval);
+          resolved = true;
+          cleanup();
           resolve(false);
         }
-      }, 200);
+      }, 100);
     });
   }
 
