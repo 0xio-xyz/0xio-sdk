@@ -121,7 +121,7 @@ export class ExtensionCommunicator extends EventEmitter {
     try {
       // Wait for extension detection with timeout
       const available = await this.waitForExtensionAvailability(10000);
-      
+
       if (available) {
         // Verify with ping
         await withTimeout(
@@ -129,13 +129,13 @@ export class ExtensionCommunicator extends EventEmitter {
           8000,
           'Extension ping timeout during initialization'
         );
-        
+
         this.isInitialized = true;
         this.logger.log('Extension communication initialized successfully');
       } else {
         this.logger.error('Extension not available after waiting');
       }
-      
+
       return this.isInitialized;
     } catch (error) {
       this.logger.error('Failed to initialize extension communication:', error);
@@ -154,8 +154,8 @@ export class ExtensionCommunicator extends EventEmitter {
    * Send request to extension
    */
   async sendRequest<T = any>(
-    method: string, 
-    params: any = {}, 
+    method: string,
+    params: any = {},
     timeout = 30000
   ): Promise<T> {
     return this.sendRequestWithRetry(method, params, 1, timeout);
@@ -165,8 +165,8 @@ export class ExtensionCommunicator extends EventEmitter {
    * Send request to extension with automatic retry logic
    */
   async sendRequestWithRetry<T = any>(
-    method: string, 
-    params: any = {}, 
+    method: string,
+    params: any = {},
     maxRetries = 3,
     timeout = 30000
   ): Promise<T> {
@@ -185,7 +185,7 @@ export class ExtensionCommunicator extends EventEmitter {
     if (!this.isExtensionAvailableState) {
       // Wait a bit for extension to become available
       await this.waitForExtensionAvailability(5000);
-      
+
       if (!this.isExtensionAvailableState) {
         throw new ZeroXIOWalletError(
           ErrorCode.EXTENSION_NOT_FOUND,
@@ -222,9 +222,9 @@ export class ExtensionCommunicator extends EventEmitter {
             reject(new ZeroXIOWalletError(
               ErrorCode.NETWORK_ERROR,
               `Request timeout after ${timeout}ms`,
-              { 
-                method, 
-                params, 
+              {
+                method,
+                params,
                 requestId,
                 retryCount: pending.retryCount,
                 extensionState: this.getExtensionDiagnostics()
@@ -295,7 +295,7 @@ export class ExtensionCommunicator extends EventEmitter {
    */
   private handleExtensionEvent(event: any): void {
     this.logger.log('Received extension event:', event.type);
-    
+
     // Forward the event to listeners
     this.emit(event.type, event.data);
   }
@@ -364,8 +364,8 @@ export class ExtensionCommunicator extends EventEmitter {
    * Check if we're in a context that can communicate with extension
    */
   private hasExtensionContext(): boolean {
-    return typeof window !== 'undefined' && 
-           typeof window.postMessage === 'function';
+    return typeof window !== 'undefined' &&
+      typeof window.postMessage === 'function';
   }
 
   /**
@@ -434,7 +434,7 @@ export class ExtensionCommunicator extends EventEmitter {
   private generateRequestId(): string {
     // ✅ SECURITY: Use crypto.randomUUID() for secure, unpredictable IDs
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-      return `octra-sdk-${crypto.randomUUID()}`;
+      return `0xio-sdk-${crypto.randomUUID()}`;
     }
 
     // Fallback to crypto.getRandomValues for older browsers
@@ -442,12 +442,12 @@ export class ExtensionCommunicator extends EventEmitter {
       const array = new Uint8Array(16);
       crypto.getRandomValues(array);
       const hex = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
-      return `octra-sdk-${hex}`;
+      return `0xio-sdk-${hex}`;
     }
 
     // Last resort fallback (not recommended for production)
     this.logger.warn('Crypto API not available, using less secure ID generation');
-    return `octra-sdk-${++this.requestId}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    return `0xio-sdk-${++this.requestId}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }
 
   /**
@@ -470,10 +470,10 @@ export class ExtensionCommunicator extends EventEmitter {
    */
   private checkExtensionAvailability(): void {
     const wasAvailable = this.isExtensionAvailableState;
-    
+
     // Basic checks for extension context
     this.isExtensionAvailableState = this.hasExtensionContext() && this.detectExtensionSignals();
-    
+
     if (!wasAvailable && this.isExtensionAvailableState) {
       this.logger.log('Extension became available');
     } else if (wasAvailable && !this.isExtensionAvailableState) {
@@ -486,16 +486,21 @@ export class ExtensionCommunicator extends EventEmitter {
    */
   private detectExtensionSignals(): boolean {
     if (typeof window === 'undefined') return false;
-    
+
     // Check for extension-injected indicators
     const win = window as any;
-    
+
     // Look for common extension indicators
     return !!(
+      win.wallet0xio ||
+      win.ZeroXIOWallet ||
+      win.__0XIO_EXTENSION__ ||
       win.__OCTRA_EXTENSION__ ||
       win.octraWallet ||
       (win.chrome?.runtime?.id) ||
-      document.querySelector('meta[name=\"octra-extension\"]') ||
+      document.querySelector('meta[name="0xio-extension"]') ||
+      document.querySelector('meta[name="octra-extension"]') ||
+      document.querySelector('[data-0xio-extension]') ||
       document.querySelector('[data-octra-extension]')
     );
   }
@@ -579,14 +584,14 @@ export class ExtensionCommunicator extends EventEmitter {
         'SDK cleanup called'
       ));
     }
-    
+
     this.pendingRequests.clear();
     this.isInitialized = false;
     this.isExtensionAvailableState = false;
-    
+
     // Call parent cleanup
     this.removeAllListeners();
-    
+
     this.logger.log('Communication cleanup complete');
   }
 

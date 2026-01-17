@@ -36,7 +36,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
   constructor(config: SDKConfig) {
     super(config.debug);
-    
+
     this.config = {
       ...config,
       appVersion: config.appVersion || '1.0.0',
@@ -46,7 +46,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
     this.logger = createLogger('ZeroXIOWallet', this.config.debug || false);
     this.communicator = new ExtensionCommunicator(this.config.debug);
-    
+
     this.logger.log('Wallet instance created with config:', this.config);
   }
 
@@ -88,17 +88,17 @@ export class ZeroXIOWallet extends EventEmitter {
       this.setupExtensionEventListeners();
 
       this.isInitialized = true;
-      
+
       this.logger.log('SDK initialized successfully');
 
       return true;
     } catch (error) {
       this.logger.error('Failed to initialize:', error);
-      
+
       if (error instanceof ZeroXIOWalletError) {
         throw error;
       }
-      
+
       throw new ZeroXIOWalletError(
         ErrorCode.UNKNOWN_ERROR,
         'Failed to initialize SDK',
@@ -156,11 +156,11 @@ export class ZeroXIOWallet extends EventEmitter {
       return connectEvent;
     } catch (error) {
       this.logger.error('Connection failed:', error);
-      
+
       if (error instanceof ZeroXIOWalletError) {
         throw error;
       }
-      
+
       throw new ZeroXIOWalletError(
         ErrorCode.CONNECTION_REFUSED,
         'Failed to connect to wallet',
@@ -215,7 +215,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       const result = await this.communicator.sendRequest('getConnectionStatus');
-      
+
       if (result.isConnected && result.address) {
         // Update internal state if we discover an existing connection
         const balanceInfo = createDefaultBalance(result.balance);
@@ -248,7 +248,7 @@ export class ZeroXIOWallet extends EventEmitter {
       return { ...this.connectionInfo };
     } catch (error) {
       this.logger.error('Failed to get connection status:', error);
-      
+
       this.connectionInfo = { isConnected: false };
       return { ...this.connectionInfo };
     }
@@ -272,9 +272,22 @@ export class ZeroXIOWallet extends EventEmitter {
     this.ensureConnected();
 
     try {
-      const result = await this.communicator.sendRequest('get_balance', {
+      // Use 'getBalance' (camelCase) instead of 'get_balance' to ensure we hit the 
+      // robust/fresh RPC path in the extension, rather than the stale cache.
+      const rpcResult = await this.communicator.sendRequest('getBalance', {
         forceRefresh
       });
+
+      // Map RPC response to SDK Balance interface
+      const balanceAmount = parseFloat(rpcResult.balance || '0');
+      const privateAmount = parseFloat(rpcResult.privateBalance || '0');
+
+      const result: Balance = {
+        public: balanceAmount,
+        private: privateAmount,
+        total: balanceAmount + privateAmount,
+        currency: 'OCT'
+      };
 
       // Update cached balance
       if (this.connectionInfo.balance) {
@@ -288,7 +301,7 @@ export class ZeroXIOWallet extends EventEmitter {
             previousBalance,
             newBalance: result
           };
-          
+
           this.emit('balanceChanged', balanceChangedEvent);
         }
       } else {
@@ -313,7 +326,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       const result = await this.communicator.sendRequest('get_network_info');
-      
+
       // Update cached network info
       if (this.connectionInfo.networkInfo) {
         const previousNetwork = this.connectionInfo.networkInfo;
@@ -325,7 +338,7 @@ export class ZeroXIOWallet extends EventEmitter {
             previousNetwork,
             newNetwork: result
           };
-          
+
           this.emit('networkChanged', networkChangedEvent);
         }
       } else {
@@ -371,11 +384,11 @@ export class ZeroXIOWallet extends EventEmitter {
       return result;
     } catch (error) {
       this.logger.error('Transaction failed:', error);
-      
+
       if (error instanceof ZeroXIOWalletError) {
         throw error;
       }
-      
+
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to send transaction',
@@ -436,12 +449,12 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       const result = await this.communicator.sendRequest('encrypt_balance', { amount });
-      
+
       // Refresh balance after encryption
       setTimeout(() => {
-        this.getBalance(true).catch(() => {});
+        this.getBalance(true).catch(() => { });
       }, 1000);
-      
+
       return result.success;
     } catch (error) {
       throw new ZeroXIOWalletError(
@@ -460,12 +473,12 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       const result = await this.communicator.sendRequest('decrypt_balance', { amount });
-      
+
       // Refresh balance after decryption
       setTimeout(() => {
-        this.getBalance(true).catch(() => {});
+        this.getBalance(true).catch(() => { });
       }, 1000);
-      
+
       return result.success;
     } catch (error) {
       throw new ZeroXIOWalletError(
@@ -484,14 +497,14 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       const result = await this.communicator.sendRequest('send_private_transfer', transferData);
-      
+
       // Refresh balance after transfer
       if (result.success) {
         setTimeout(() => {
-          this.getBalance(true).catch(() => {});
+          this.getBalance(true).catch(() => { });
         }, 1000);
       }
-      
+
       return result;
     } catch (error) {
       throw new ZeroXIOWalletError(
@@ -530,14 +543,14 @@ export class ZeroXIOWallet extends EventEmitter {
       const result = await this.communicator.sendRequest('claim_private_transfer', {
         transferId
       });
-      
+
       // Refresh balance after claiming
       if (result.success) {
         setTimeout(() => {
-          this.getBalance(true).catch(() => {});
+          this.getBalance(true).catch(() => { });
         }, 1000);
       }
-      
+
       return result;
     } catch (error) {
       throw new ZeroXIOWalletError(
@@ -563,7 +576,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
   private ensureConnected(): void {
     this.ensureInitialized();
-    
+
     if (!this.connectionInfo.isConnected) {
       throw new ZeroXIOWalletError(
         ErrorCode.CONNECTION_REFUSED,
@@ -606,7 +619,7 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   private handleAccountChanged(data: any): void {
     const previousAddress = this.connectionInfo.address;
-    
+
     this.connectionInfo.address = data.address;
     if (data.balance) {
       this.connectionInfo.balance = data.balance;
@@ -619,7 +632,7 @@ export class ZeroXIOWallet extends EventEmitter {
     };
 
     this.emit('accountChanged', accountChangedEvent);
-    
+
     this.logger.log('Account changed:', accountChangedEvent);
   }
 
@@ -636,7 +649,7 @@ export class ZeroXIOWallet extends EventEmitter {
     };
 
     this.emit('networkChanged', networkChangedEvent);
-    
+
     this.logger.log('Network changed:', networkChangedEvent);
   }
 
@@ -654,7 +667,7 @@ export class ZeroXIOWallet extends EventEmitter {
     };
 
     this.emit('balanceChanged', balanceChangedEvent);
-    
+
     this.logger.log('Balance changed:', balanceChangedEvent);
   }
 
@@ -663,13 +676,13 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   private handleExtensionLocked(): void {
     this.connectionInfo = { isConnected: false };
-    
+
     const disconnectEvent: DisconnectEvent = {
       reason: 'extension_locked'
     };
 
     this.emit('disconnect', disconnectEvent);
-    
+
     this.logger.log('Extension locked - disconnected');
   }
 
@@ -681,7 +694,7 @@ export class ZeroXIOWallet extends EventEmitter {
     this.getConnectionStatus().catch(() => {
       this.logger.warn('Could not restore connection after unlock');
     });
-    
+
     this.logger.log('Extension unlocked');
   }
 
@@ -694,12 +707,12 @@ export class ZeroXIOWallet extends EventEmitter {
       transaction: data.transaction,
       confirmations: data.confirmations
     });
-    
+
     // Refresh balance after transaction confirmation
     setTimeout(() => {
-      this.getBalance(true).catch(() => {});
+      this.getBalance(true).catch(() => { });
     }, 2000);
-    
+
     this.logger.log('Transaction confirmed:', data.txHash);
   }
 
@@ -715,7 +728,7 @@ export class ZeroXIOWallet extends EventEmitter {
     this.removeAllListeners();
     this.connectionInfo = { isConnected: false };
     this.isInitialized = false;
-    
+
     this.logger.log('SDK cleanup complete');
   }
 }

@@ -2,6 +2,18 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.1.2] - 2026-01-17
+
+### Fixed
+- **Critical**: `getBalance` now uses the robust, live RPC method (`getBalance`) instead of the stale legacy cache (`get_balance`).
+- **Feature**: Added support for `private` balance field in the standard Balance response.
+- **Internal**: Added robust mapping for RPC responses to ensure correct public/private `Balance` object structure.
+
+## [2.1.1] - 2026-01-16
+
+### Changed
+- Updated logging to be less verbose in production.
+
 ## [2.0.2] - 2025-12-22
 
 ### Breaking Changes
