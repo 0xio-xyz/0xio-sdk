@@ -12,7 +12,7 @@ import {
   WalletEventType,
   ErrorCode,
   isErrorType
-} from '@0xgery/0xio-sdk';
+} from '@0xio/sdk';
 
 // Types for our component state
 interface WalletState {

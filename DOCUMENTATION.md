@@ -35,7 +35,7 @@ The 0xio SDK provides a comprehensive toolkit for building decentralized applica
 ```
 DApp (Your Application)
     ↓
-0xio SDK (@0xgery/0xio-sdk)
+0xio SDK (@0xio/sdk)
     ↓
 0xio Wallet Extension
     ↓
@@ -47,19 +47,19 @@ Octra Network
 ### NPM
 
 ```bash
-npm install @0xgery/0xio-sdk
+npm install @0xio/sdk
 ```
 
 ### Yarn
 
 ```bash
-yarn add @0xgery/0xio-sdk
+yarn add @0xio/sdk
 ```
 
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xgery/0xio-sdk@1.0.5/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@1.0.5/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -73,7 +73,7 @@ yarn add @0xgery/0xio-sdk
 ### Basic Example
 
 ```typescript
-import { ZeroXIOWallet } from '@0xgery/0xio-sdk';
+import { ZeroXIOWallet } from '@0xio/sdk';
 
 // 1. Create wallet instance
 const wallet = new ZeroXIOWallet({
@@ -107,7 +107,7 @@ console.log('Transaction hash:', result.txHash);
 For even simpler setup:
 
 ```typescript
-import { createZeroXIOWallet } from '@0xgery/0xio-sdk';
+import { createZeroXIOWallet } from '@0xio/sdk';
 
 const wallet = await createZeroXIOWallet({
   appName: 'My DApp',
@@ -640,7 +640,7 @@ import {
   // Development
   generateMockData,
   createLogger
-} from '@0xgery/0xio-sdk';
+} from '@0xio/sdk';
 ```
 
 **Examples:**
@@ -775,7 +775,7 @@ if (process.env.NODE_ENV === 'development') {
 
 ```tsx
 import React, { useState, useEffect } from 'react';
-import { ZeroXIOWallet, Balance } from '@0xgery/0xio-sdk';
+import { ZeroXIOWallet, Balance } from '@0xio/sdk';
 
 export function useWallet() {
   const [wallet] = useState(() => new ZeroXIOWallet({ appName: 'My DApp' }));
@@ -861,7 +861,7 @@ function WalletButton() {
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { ZeroXIOWallet, Balance } from '@0xgery/0xio-sdk';
+import { ZeroXIOWallet, Balance } from '@0xio/sdk';
 
 const wallet = new ZeroXIOWallet({ appName: 'My Vue DApp' });
 const connected = ref(false);
@@ -903,7 +903,7 @@ const disconnect = async () => {
 ```svelte
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ZeroXIOWallet, type Balance } from '@0xgery/0xio-sdk';
+  import { ZeroXIOWallet, type Balance } from '@0xio/sdk';
 
   const wallet = new ZeroXIOWallet({ appName: 'My Svelte DApp' });
   let connected = false;
@@ -977,7 +977,7 @@ enum ErrorCode {
 ### Error Handling Pattern
 
 ```typescript
-import { OctraWalletError, ErrorCode, isErrorType } from '@0xgery/0xio-sdk';
+import { OctraWalletError, ErrorCode, isErrorType } from '@0xio/sdk';
 
 try {
   const result = await wallet.sendTransaction(txData);
@@ -1039,7 +1039,7 @@ wallet.on('error', (errorEvent) => {
 1. **Always Validate Inputs**
 
 ```typescript
-import { isValidAddress, isValidAmount } from '@0xgery/0xio-sdk';
+import { isValidAddress, isValidAmount } from '@0xio/sdk';
 
 function validateTransaction(to: string, amount: number) {
   if (!isValidAddress(to)) {
@@ -1082,7 +1082,7 @@ try {
 5. **Implement Timeouts**
 
 ```typescript
-import { withTimeout } from '@0xgery/0xio-sdk';
+import { withTimeout } from '@0xio/sdk';
 
 try {
   const result = await withTimeout(
@@ -1105,7 +1105,7 @@ The SDK enforces rate limits:
 Implement your own rate limiting for bulk operations:
 
 ```typescript
-import { delay } from '@0xgery/0xio-sdk';
+import { delay } from '@0xio/sdk';
 
 async function sendBulkTransactions(transactions) {
   for (const tx of transactions) {

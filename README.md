@@ -15,13 +15,13 @@ A comprehensive TypeScript/JavaScript SDK that enables seamless integration betw
 ### Installation
 
 ```bash
-npm install @0xgery/0xio-sdk
+npm install @0xio/sdk
 ```
 
 ### Usage
 
 ```typescript
-import { ZeroXIOWallet } from '@0xgery/0xio-sdk';
+import { ZeroXIOWallet } from '@0xio/sdk';
 
 // 1. Initialize
 const wallet = new ZeroXIOWallet({

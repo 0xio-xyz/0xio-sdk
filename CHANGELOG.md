@@ -49,7 +49,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 ### Migration Guide
 To upgrade from v1.x to v2.x:
-1. Update SDK: `npm install @0xgery/0xio-sdk@^2.0.0`
+1. Update SDK: `npm install @0xio/sdk@^2.0.0`
 2. Update 0xio Wallet extension to v2.0 or higher
 3. No code changes required - API remains unchanged
 
@@ -103,7 +103,7 @@ This is the first stable release of the 0xio Wallet SDK, a comprehensive bridge 
 - **Professional code refactoring**: All files now include comprehensive JSDoc documentation
 
 ### Package Changes
-- **Package renamed**: `@0xgery/wallet-sdk` → `@0xgery/0xio-sdk`
+- **Package renamed**: `@0xgery/wallet-sdk` → `@0xio/sdk`
 - **Version bump**: 0.2.1 → 1.0.0 (production-ready)
 - **Repository**: Published to https://github.com/0xGery/0xio-sdk
 - **Homepage**: https://0xio.xyz
