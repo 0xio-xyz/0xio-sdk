@@ -312,6 +312,15 @@ export class ZeroXIOWallet extends EventEmitter {
         // The extension might return a stale public balance, but we ignore it
         const extResult = await this.communicator.sendRequest('getBalance', { forceRefresh });
         privateBalance = parseFloat(extResult.privateBalance || '0');
+
+        // FALLBACK: If direct fetch failed (publicBalance === 0) but Extension has data, use it!
+        // This handles CORS issues where Direct Fetch is blocked but Extension (background) is allowed.
+        if (publicBalance === 0 && extResult.balance && extResult.balance !== '0') {
+          this.logger.log('Using fallback public balance from Extension:', extResult.balance);
+          publicBalance = parseFloat(extResult.balance);
+          // Also update nonce if we have to
+          if (extResult.nonce) nonce = extResult.nonce;
+        }
       } catch (extError) {
         this.logger.warn('Failed to fetch private balance from extension:', extError);
       }
