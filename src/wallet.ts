@@ -277,53 +277,15 @@ export class ZeroXIOWallet extends EventEmitter {
         throw new Error('No address found');
       }
 
-      // 1. Fetch Public Balance DIRECTLY from RPC (Bypass Extension Cache/Logic)
+      // Fetch balance from extension (bypasses CORS, has access to private balance)
       let publicBalance = 0;
-      let nonce = 0;
-
-      try {
-        const networkInfo = await this.getNetworkInfo();
-        const rpcUrl = networkInfo.rpcUrl || 'https://octra.network';
-
-        // Add timestamp to prevent caching
-        const response = await fetch(`${rpcUrl}/balance/${address}?t=${Date.now()}`);
-
-        if (response.ok) {
-          const data = await response.json();
-          publicBalance = parseFloat(data.balance || '0');
-          nonce = data.nonce || 0;
-        } else if (response.status === 404 || response.status === 403) {
-          // New/Empty wallet handling
-          publicBalance = 0;
-          nonce = 0;
-        } else {
-          this.logger.warn(`Failed to fetch public balance: ${response.status}`);
-        }
-      } catch (networkError) {
-        this.logger.error('Direct public balance fetch failed:', networkError);
-        // Fallback to extension if direct fetch fails? 
-        // For now, assume 0 or keep cached if network is down, but let's default to 0 to be safe
-      }
-
-      // 2. Fetch Private Balance from Extension (Secure Context)
       let privateBalance = 0;
-      try {
-        // We still ask extension for balance to get the private component
-        // The extension might return a stale public balance, but we ignore it
-        const extResult = await this.communicator.sendRequest('getBalance', { forceRefresh });
-        privateBalance = parseFloat(extResult.privateBalance || '0');
 
-        // FALLBACK: If direct fetch failed (publicBalance === 0) but Extension has data, use it!
-        // This handles CORS issues where Direct Fetch is blocked but Extension (background) is allowed.
-        if (publicBalance === 0 && extResult.balance && extResult.balance !== '0') {
-          this.logger.log('Using fallback public balance from Extension:', extResult.balance);
-          publicBalance = parseFloat(extResult.balance);
-          // Also update nonce if we have to
-          if (extResult.nonce) nonce = extResult.nonce;
-        }
-      } catch (extError) {
-        this.logger.warn('Failed to fetch private balance from extension:', extError);
-      }
+      const extResult = await this.communicator.sendRequest('getBalance', { forceRefresh });
+      publicBalance = parseFloat(extResult.balance || '0');
+      privateBalance = parseFloat(extResult.privateBalance || '0');
+
+      this.logger.log('Balance fetched from extension:', { public: publicBalance, private: privateBalance });
 
       const result: Balance = {
         public: publicBalance,

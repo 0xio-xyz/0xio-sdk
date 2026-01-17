@@ -2,6 +2,12 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.1.3] - 2026-01-17
+
+### Fixed
+- **Simplified Balance Fetching**: Reverted to extension-based balance fetching to avoid CORS issues. The SDK now fetches both public and private balance exclusively from the extension's background script, which has unrestricted network access.
+- **Reliability**: Removed complex hybrid architecture in favor of a simpler, more reliable single-source approach.
+
 ## [2.1.2] - 2026-01-17
 
 ### Fixed

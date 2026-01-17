@@ -1,6 +1,6 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.2
+**Version:** 2.1.3
 
 A comprehensive TypeScript/JavaScript SDK that enables seamless integration between decentralized applications (DApps) and the 0xio Wallet browser extension.
 
