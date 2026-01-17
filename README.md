@@ -6,7 +6,7 @@ A comprehensive TypeScript/JavaScript SDK that enables seamless integration betw
 
 ## What's New in v2.1.2 (The "Fertility" Update)
 
-- **Robust Balance Fetching:** Fixed a critical issue where `getBalance()` returned stale cached data. The SDK now invokes the extension's live RPC fetcher (`getBalance`), ensuring accurate real-time data from the Octra Network.
+- **Robust "Hybrid" Balance Fetching:** Fixed a critical issue where `getBalance()` could return stale cached data or fail on 404s. The SDK now fetches **Public Balance** directly from the RPC node (`https://octra.network/balance`) while securely retrieving **Private Balance** from the extension.
 - **Private Balance Support:** The `Balance` object now includes a `private` field, populated by the secure context of the 0xio Wallet.
 - **Enhanced Types:** Full type definitions for the composite Public/Private balance structure.
 
