@@ -2,6 +2,22 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.1.4] - 2026-01-18
+
+### Fixed
+- **Critical Transaction Fix**: Fixed `ZeroXIOWalletError` when sending transactions from DApps. The SDK now properly handles extension response formats.
+- **Wallet ID Resolution**: Fixed wallet lookup failing when `getActiveWallet()` returns address instead of UUID in vault fallback mode. Extension now finds wallet by address match.
+- **Error Response Format**: Extension error responses now use proper object format `{ code, message }` instead of plain strings, matching SDK's `ExtensionResponse` type expectations.
+- **Success Response Format**: Transaction success responses now include `data` wrapper as expected by SDK's `handleExtensionResponse`.
+
+### Changed
+- **Version Compatibility**: Changed from explicit version array to semver range (`^2.0.1`) - SDK now supports all extension versions >= 2.0.1.
+- **New Export**: Added `MIN_EXTENSION_VERSION` constant for programmatic version checking.
+
+### Compatibility
+- Requires 0xio Wallet Extension v2.0.1 or higher
+- Fully backward compatible with existing DApp integrations
+
 ## [2.1.3] - 2026-01-17
 
 ### Fixed

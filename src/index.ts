@@ -121,8 +121,9 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.1.1';
-export const SUPPORTED_EXTENSION_VERSIONS = ['2.0.1', '2.0.3', '2.0.4'];
+export const SDK_VERSION = '2.1.4';
+export const MIN_EXTENSION_VERSION = '2.0.1';
+export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
 
 // Quick setup function for simple use cases
 export async function createZeroXIOWallet(config: {
@@ -220,6 +221,7 @@ if (typeof window !== 'undefined') {
       },
       getSDKInfo: () => ({
         version: SDK_VERSION,
+        minExtensionVersion: MIN_EXTENSION_VERSION,
         supportedExtensions: SUPPORTED_EXTENSION_VERSIONS,
         debugMode: !!(window as any).__ZEROXIO_SDK_DEBUG__,
         environment: isDevelopment ? 'development' : 'production'

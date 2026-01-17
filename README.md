@@ -1,14 +1,15 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.3
+**Version:** 2.1.4
 
 A comprehensive TypeScript/JavaScript SDK that enables seamless integration between decentralized applications (DApps) and the 0xio Wallet browser extension.
 
-## What's New in v2.1.2 (The "Fertility" Update)
+## What's New in v2.1.4
 
-- **Robust "Hybrid" Balance Fetching:** Fixed a critical issue where `getBalance()` could return stale cached data or fail on 404s. The SDK now fetches **Public Balance** directly from the RPC node (`https://octra.network/balance`) while securely retrieving **Private Balance** from the extension.
-- **Private Balance Support:** The `Balance` object now includes a `private` field, populated by the secure context of the 0xio Wallet.
-- **Enhanced Types:** Full type definitions for the composite Public/Private balance structure.
+- **Critical Transaction Fix**: Fixed `ZeroXIOWalletError` when sending transactions from DApps.
+- **Wallet ID Resolution**: Fixed wallet lookup in vault fallback mode - extension now correctly finds wallets by address.
+- **Semver Compatibility**: SDK now supports all extension versions `^2.0.1` (>= 2.0.1) instead of explicit version list.
+- **Improved Error Handling**: Extension responses now use proper typed error format.
 
 ## Quick Start
 
