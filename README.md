@@ -1,25 +1,22 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.4
+**Version:** 2.1.5
 
-A comprehensive TypeScript/JavaScript SDK that enables seamless integration between decentralized applications (DApps) and the 0xio Wallet browser extension.
+Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.1.4
+## What's New in v2.1.5
 
-- **Critical Transaction Fix**: Fixed `ZeroXIOWalletError` when sending transactions from DApps.
-- **Wallet ID Resolution**: Fixed wallet lookup in vault fallback mode - extension now correctly finds wallets by address.
-- **Semver Compatibility**: SDK now supports all extension versions `^2.0.1` (>= 2.0.1) instead of explicit version list.
-- **Improved Error Handling**: Extension responses now use proper typed error format.
+- **Message Signing**: Added `signMessage()` method for signing arbitrary messages with Ed25519
+- **Input Validation**: Message signing now validates input and provides clear error messages
+- **Better Logging**: Improved debug logging for signature requests
 
-## Quick Start
-
-### Installation
+## Installation
 
 ```bash
 npm install @0xio/sdk
 ```
 
-### Usage
+## Quick Start
 
 ```typescript
 import { ZeroXIOWallet } from '@0xio/sdk';
@@ -27,7 +24,7 @@ import { ZeroXIOWallet } from '@0xio/sdk';
 // 1. Initialize
 const wallet = new ZeroXIOWallet({
   appName: 'My DApp',
-  requiredPermissions: ['read_balance']
+  requiredPermissions: ['read_balance', 'sign_messages']
 });
 
 await wallet.initialize();
@@ -36,52 +33,129 @@ await wallet.initialize();
 const connection = await wallet.connect();
 console.log('Connected:', connection.address);
 
-// 3. Get Fresh Balance (Public + Private)
-const balance = await wallet.getBalance(true); // true = force refresh
-console.log('Total:', balance.total);
-console.log('Public:', balance.public);
-console.log('Private:', balance.private);
+// 3. Get Balance
+const balance = await wallet.getBalance();
+console.log('Total:', balance.total, 'OCT');
+
+// 4. Sign a Message
+const signature = await wallet.signMessage('Hello, 0xio!');
+console.log('Signature:', signature);
+
+// 5. Send Transaction
+const result = await wallet.sendTransaction({
+  to: 'oct1recipient...',
+  amount: 10.5,
+  message: 'Payment'
+});
+console.log('TX Hash:', result.txHash);
 ```
 
 ## API Reference
 
-### `wallet.getBalance(forceRefresh?: boolean)`
+### Connection
 
-Fetches the current balance.
-- **Returns**: `Promise<Balance>`
-  ```typescript
-  interface Balance {
-    public: number;   // Visible on chain
-    private: number;  // Encrypted (FHE), decrypted locally
-    total: number;    // public + private
-    currency: 'OCT';
-  }
-  ```
+#### `wallet.initialize(): Promise<boolean>`
+Initialize the SDK. Must be called first.
 
-### `wallet.connect(options?)`
+#### `wallet.connect(options?): Promise<ConnectEvent>`
+Connect to the user's wallet. Shows approval popup if first time.
 
-Requests a connection to the user's wallet.
-- **Returns**: `Promise<ConnectEvent>` including initial address and balance.
+#### `wallet.disconnect(): Promise<void>`
+Disconnect from the wallet.
 
-### `wallet.sendTransaction(txData)`
+#### `wallet.isConnected(): boolean`
+Check if currently connected.
 
-Sends a standard or shielded transaction.
+### Balance
 
-### `wallet.signMessage(message: string)`
+#### `wallet.getBalance(forceRefresh?: boolean): Promise<Balance>`
+Get wallet balance (public + private).
 
-Requests the user to sign a text message.
-- **Returns**: `Promise<string>` (the signature)
-
-## Development
-
-```bash
-# Build
-npm run build
-
-# Link locally
-npm link
+```typescript
+interface Balance {
+  public: number;   // Visible on-chain balance
+  private: number;  // Encrypted (FHE) balance
+  total: number;    // public + private
+  currency: 'OCT';
+}
 ```
+
+### Transactions
+
+#### `wallet.sendTransaction(txData): Promise<TransactionResult>`
+Send a transaction.
+
+```typescript
+interface TransactionData {
+  to: string;        // Recipient address (oct1...)
+  amount: number;    // Amount in OCT
+  message?: string;  // Optional memo
+}
+```
+
+### Message Signing
+
+#### `wallet.signMessage(message: string): Promise<string>`
+Sign an arbitrary message with the wallet's private key. User will be prompted to approve.
+
+```typescript
+// Sign a message for authentication
+const message = `Login to MyDApp\nTimestamp: ${Date.now()}`;
+const signature = await wallet.signMessage(message);
+
+// Signature is base64-encoded Ed25519
+console.log('Signature:', signature);
+```
+
+**Use cases:**
+- Prove wallet ownership for API authentication
+- Sign login challenges
+- Authorize off-chain actions
+- Create verifiable attestations
+
+### Events
+
+```typescript
+wallet.on('connect', (event) => console.log('Connected:', event.address));
+wallet.on('disconnect', (event) => console.log('Disconnected'));
+wallet.on('balanceChanged', (event) => console.log('New balance:', event.newBalance.total));
+wallet.on('accountChanged', (event) => console.log('Account changed:', event.newAddress));
+wallet.on('networkChanged', (event) => console.log('Network:', event.newNetwork.name));
+```
+
+## Error Handling
+
+```typescript
+import { ZeroXIOWalletError, ErrorCode } from '@0xio/sdk';
+
+try {
+  const signature = await wallet.signMessage('Hello');
+} catch (error) {
+  if (error instanceof ZeroXIOWalletError) {
+    switch (error.code) {
+      case ErrorCode.USER_REJECTED:
+        console.log('User rejected the signature request');
+        break;
+      case ErrorCode.SIGNATURE_FAILED:
+        console.log('Signing failed:', error.message);
+        break;
+      case ErrorCode.WALLET_LOCKED:
+        console.log('Please unlock your wallet');
+        break;
+    }
+  }
+}
+```
+
+## Requirements
+
+- 0xio Wallet Extension v2.0.1 or higher
+- Modern browser (Chrome, Firefox, Edge, Brave)
+
+## Documentation
+
+See [DOCUMENTATION.md](DOCUMENTATION.md) for complete API reference.
 
 ## License
 
-MIT License. Copyright © 2026 0xio Team.
+MIT License. Copyright 2026 0xio Team.

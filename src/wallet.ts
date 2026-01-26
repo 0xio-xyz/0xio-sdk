@@ -571,29 +571,49 @@ export class ZeroXIOWallet extends EventEmitter {
   // ===================
 
   /**
-   * Sign a message
-   * @param message - The message content to sign
-   * @returns Promise resolving to the signature string
+   * Sign an arbitrary message with the wallet's private key
+   * The user will be prompted to approve the signature request in the extension
+   * @param message - The message to sign (non-empty string)
+   * @returns Promise resolving to the base64-encoded Ed25519 signature
+   * @throws ZeroXIOWalletError with code SIGNATURE_FAILED if signing fails
+   * @example
+   * ```typescript
+   * const signature = await wallet.signMessage('Hello, 0xio!');
+   * console.log('Signature:', signature);
+   * ```
    */
   async signMessage(message: string): Promise<string> {
     this.ensureConnected();
 
+    // Validate input
+    if (!message || typeof message !== 'string') {
+      throw new ZeroXIOWalletError(
+        ErrorCode.SIGNATURE_FAILED,
+        'Message must be a non-empty string'
+      );
+    }
+
     try {
-      this.logger.log('Requesting message signature');
+      this.logger.log('Requesting message signature for:', message.substring(0, 100) + (message.length > 100 ? '...' : ''));
       const result = await this.communicator.sendRequest('signMessage', { message });
-      return result;
+
+      // Extension returns { signature: string }
+      const signature = result?.signature || result;
+
+      this.logger.log('Message signed successfully');
+      return signature;
     } catch (error) {
       this.logger.error('Sign message failed:', error);
-      {
-        if (error instanceof ZeroXIOWalletError) {
-          throw error;
-        }
-        throw new ZeroXIOWalletError(
-          ErrorCode.SIGNATURE_FAILED,
-          'Failed to sign message',
-          error
-        );
+
+      if (error instanceof ZeroXIOWalletError) {
+        throw error;
       }
+
+      throw new ZeroXIOWalletError(
+        ErrorCode.SIGNATURE_FAILED,
+        'Failed to sign message',
+        error
+      );
     }
   }
 

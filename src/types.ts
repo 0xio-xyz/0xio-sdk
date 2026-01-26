@@ -87,8 +87,10 @@ export interface ConnectOptions {
 }
 
 export type Permission =
+  | 'read_address'
   | 'read_balance'
   | 'send_transactions'
+  | 'sign_messages'
   | 'view_private_balance'
   | 'private_transfers';
 

@@ -24,6 +24,7 @@ The 0xio SDK provides a comprehensive toolkit for building decentralized applica
 
 - **Wallet Connection** - Seamless integration with 0xio Wallet browser extension
 - **Transaction Management** - Send public and private transactions
+- **Message Signing** - Sign arbitrary messages for authentication and attestation
 - **Balance Queries** - Read public and encrypted private balances
 - **Event System** - Real-time updates for all wallet events
 - **Network Management** - Support for Mainnet Alpha and custom networks
@@ -59,7 +60,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@1.0.5/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.1.5/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -79,7 +80,7 @@ import { ZeroXIOWallet } from '@0xio/sdk';
 const wallet = new ZeroXIOWallet({
   appName: 'My DApp',
   appDescription: 'A cool decentralized application',
-  requiredPermissions: ['read_balance', 'send_transactions']
+  requiredPermissions: ['read_balance', 'send_transactions', 'sign_messages']
 });
 
 // 2. Initialize
@@ -93,7 +94,11 @@ console.log('Connected!', connection.address);
 const balance = await wallet.getBalance();
 console.log('Balance:', balance.total, 'OCT');
 
-// 5. Send transaction
+// 5. Sign a message (for authentication)
+const signature = await wallet.signMessage('Login to My DApp');
+console.log('Signature:', signature);
+
+// 6. Send transaction
 const result = await wallet.sendTransaction({
   to: 'oct1recipient...',
   amount: 10.5,
@@ -480,18 +485,49 @@ interface TransactionHistory {
 
 #### `signMessage(message: string): Promise<string>`
 
-Sign a text message with the wallet's private key.
+Sign an arbitrary message with the wallet's private key using Ed25519. The user will be prompted to approve the signature request in the extension popup.
 
 ```typescript
-const signature = await wallet.signMessage("Hello World");
+// Simple message signing
+const signature = await wallet.signMessage("Hello, 0xio!");
 console.log("Signature:", signature);
+
+// Authentication challenge
+const timestamp = Date.now();
+const challenge = `Sign in to MyDApp\nTimestamp: ${timestamp}\nAddress: ${wallet.getAddress()}`;
+const authSignature = await wallet.signMessage(challenge);
+
+// API key creation (for 0xio Oracle/Indexer)
+const owner = wallet.getAddress();
+const ts = Math.floor(Date.now() / 1000);
+const apiKeyMessage = `0xio-api-key:${owner}:${ts}`;
+const signature = await wallet.signMessage(apiKeyMessage);
 ```
 
 **Parameters:**
 
-- `message` (string): The text to sign.
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `message` | string | Yes | The text message to sign (must be non-empty) |
 
-**Returns:** `Promise<string>` - The cryptographic signature.
+**Returns:** `Promise<string>` - Base64-encoded Ed25519 signature (64 bytes)
+
+**Throws:**
+- `SIGNATURE_FAILED` - If signing fails or message is invalid
+- `USER_REJECTED` - If user rejects the signature request
+- `WALLET_LOCKED` - If wallet is locked
+
+**Use Cases:**
+- **Authentication**: Prove wallet ownership for login/API access
+- **Attestation**: Sign data for on-chain verification
+- **Authorization**: Approve off-chain actions
+- **API Keys**: Create authenticated API credentials
+
+**Security Notes:**
+- The message is displayed to the user in the approval popup
+- Never sign messages you don't understand
+- Include timestamps to prevent replay attacks
+- The signature can be verified using the wallet's public key
 
 ---
 
@@ -996,13 +1032,13 @@ enum ErrorCode {
 ### Error Handling Pattern
 
 ```typescript
-import { OctraWalletError, ErrorCode, isErrorType } from '@0xio/sdk';
+import { ZeroXIOWalletError, ErrorCode, isErrorType } from '@0xio/sdk';
 
 try {
   const result = await wallet.sendTransaction(txData);
 
 } catch (error) {
-  if (error instanceof OctraWalletError) {
+  if (error instanceof ZeroXIOWalletError) {
     switch (error.code) {
       case ErrorCode.EXTENSION_NOT_FOUND:
         showError('Please install 0xio Wallet extension');
@@ -1075,7 +1111,28 @@ function validateTransaction(to: string, amount: number) {
 
 The SDK never exposes private keys. All signing happens in the wallet extension.
 
-3. **Verify Network**
+3. **Message Signing Security**
+
+When implementing message signing, follow these practices:
+
+```typescript
+// GOOD: Include timestamp to prevent replay attacks
+const timestamp = Date.now();
+const message = `Login to MyDApp\nTimestamp: ${timestamp}`;
+const signature = await wallet.signMessage(message);
+
+// GOOD: Include nonce for one-time use
+const nonce = crypto.randomUUID();
+const message = `Authorize action\nNonce: ${nonce}`;
+
+// BAD: Never sign messages you don't understand
+// BAD: Never sign raw transaction data as "messages"
+// BAD: Never sign messages without showing user the content
+```
+
+**Verification:** To verify signatures, use the wallet's public key with Ed25519 verification.
+
+4. **Verify Network**
 
 ```typescript
 const network = await wallet.getNetworkInfo();
@@ -1085,7 +1142,7 @@ if (network.id !== 'mainnet') {
 }
 ```
 
-4. **Handle User Rejections Gracefully**
+5. **Handle User Rejections Gracefully**
 
 ```typescript
 try {
@@ -1098,7 +1155,7 @@ try {
 }
 ```
 
-5. **Implement Timeouts**
+6. **Implement Timeouts**
 
 ```typescript
 import { withTimeout } from '@0xio/sdk';
@@ -1115,7 +1172,7 @@ try {
 }
 ```
 
-6. **Rate Limiting**
+7. **Rate Limiting**
 
 The SDK enforces rate limits:
 - Max 20 requests per second
@@ -1231,7 +1288,7 @@ try {
 } catch (error) {
   if (isErrorType(error, ErrorCode.EXTENSION_NOT_FOUND)) {
     // Show install prompt
-    window.open('https://0xio.xyz/install');
+    window.open('https://chromewebstore.google.com/detail/0xio-wallet/anknhjilldkeelailocijnfibefmepcc');
   }
 }
 ```
@@ -1319,10 +1376,9 @@ try {
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/0xGery/0xio-sdk/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/0xGery/0xio-sdk/discussions)
-- **Telegram**: [@nullXgery](https://t.me/nullXgery)
-- **Email**: 0xgery@proton.me
+- **Issues**: [GitHub Issues](https://github.com/0xio-xyz/0xio-sdk/issues)
+- **Documentation**: [0xio Docs](https://docs.0xio.xyz)
+- **Website**: [0xio.xyz](https://0xio.xyz)
 
 ## License
 
@@ -1330,4 +1386,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Built by NullxGery (0xGery) for the Octra Network ecosystem**
+**Built by the 0xio Team for the Octra Network ecosystem**

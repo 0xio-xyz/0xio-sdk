@@ -5,8 +5,10 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 ## [2.1.5] - 2026-01-27
 
 ### Added
-- `signMessage` method to `ZeroXIOWallet` class for signing arbitrary text messages using the extension.
-- `SIGNATURE_FAILED` error code.
+- `signMessage` method to `ZeroXIOWallet` class for signing arbitrary text messages using Ed25519.
+- `sign_messages` and `read_address` permission types for TypeScript definitions.
+- Input validation for `signMessage` - rejects empty or non-string messages.
+- Improved debug logging for signature requests (truncates long messages in logs).
 
 ## [2.1.4] - 2026-01-18
 

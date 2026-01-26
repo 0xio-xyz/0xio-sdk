@@ -4,12 +4,12 @@
  *
  * @example
  * ```typescript
- * import { ZeroXIOWallet } from '@0xgery/wallet-sdk';
+ * import { ZeroXIOWallet } from '@0xio/sdk';
  *
  * const wallet = new ZeroXIOWallet({
  *   appName: 'My DApp',
  *   appDescription: 'An awesome decentralized application',
- *   requiredPermissions: ['read_balance', 'send_transactions']
+ *   requiredPermissions: ['read_balance', 'send_transactions', 'sign_messages']
  * });
  *
  * await wallet.initialize();
@@ -17,6 +17,9 @@
  *
  * const balance = await wallet.getBalance();
  * console.log('Balance:', balance.total, 'OCT');
+ *
+ * const signature = await wallet.signMessage('Hello, 0xio!');
+ * console.log('Signature:', signature);
  * ```
  */
 
@@ -121,7 +124,7 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.1.4';
+export const SDK_VERSION = '2.1.5';
 export const MIN_EXTENSION_VERSION = '2.0.1';
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
 
