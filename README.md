@@ -65,8 +65,6 @@ Requests a connection to the user's wallet.
 
 ### `wallet.sendTransaction(txData)`
 
-### `wallet.sendTransaction(txData)`
-
 Sends a standard or shielded transaction.
 
 ### `wallet.signMessage(message: string)`
