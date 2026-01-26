@@ -2,7 +2,7 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
-## [2.1.5] - 2026-01-27
+## [2.1.6] - 2026-01-27
 
 ### Added
 - `signMessage` method to `ZeroXIOWallet` class for signing arbitrary text messages using Ed25519.

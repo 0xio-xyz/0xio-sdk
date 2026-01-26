@@ -124,7 +124,7 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.1.5';
+export const SDK_VERSION = '2.1.6';
 export const MIN_EXTENSION_VERSION = '2.0.1';
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
 

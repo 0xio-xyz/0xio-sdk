@@ -1,10 +1,10 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.5
+**Version:** 2.1.6
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.1.5
+## What's New in v2.1.6
 
 - **Message Signing**: Added `signMessage()` method for signing arbitrary messages with Ed25519
 - **Input Validation**: Message signing now validates input and provides clear error messages
