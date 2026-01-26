@@ -86,14 +86,14 @@ export interface ConnectOptions {
   readonly networkId?: string;
 }
 
-export type Permission = 
-  | 'read_balance' 
-  | 'send_transactions' 
+export type Permission =
+  | 'read_balance'
+  | 'send_transactions'
   | 'view_private_balance'
   | 'private_transfers';
 
 // Event types
-export type WalletEventType = 
+export type WalletEventType =
   | 'connect'
   | 'disconnect'
   | 'accountChanged'
@@ -158,6 +158,7 @@ export enum ErrorCode {
   INVALID_AMOUNT = 'INVALID_AMOUNT',
   NETWORK_ERROR = 'NETWORK_ERROR',
   TRANSACTION_FAILED = 'TRANSACTION_FAILED',
+  SIGNATURE_FAILED = 'SIGNATURE_FAILED',
   PERMISSION_DENIED = 'PERMISSION_DENIED',
   WALLET_LOCKED = 'WALLET_LOCKED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',

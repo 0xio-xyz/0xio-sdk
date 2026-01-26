@@ -180,6 +180,7 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.INVALID_AMOUNT]: 'Invalid transaction amount',
     [ErrorCode.NETWORK_ERROR]: 'Network communication error',
     [ErrorCode.TRANSACTION_FAILED]: 'Transaction failed to process',
+    [ErrorCode.SIGNATURE_FAILED]: 'Message signing failed or was rejected',
     [ErrorCode.PERMISSION_DENIED]: 'Permission denied for this operation',
     [ErrorCode.WALLET_LOCKED]: 'Wallet is locked, please unlock first',
     [ErrorCode.RATE_LIMIT_EXCEEDED]: 'Rate limit exceeded, please try again later',

@@ -567,6 +567,37 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   // ===================
+  // MESSAGE SIGNING
+  // ===================
+
+  /**
+   * Sign a message
+   * @param message - The message content to sign
+   * @returns Promise resolving to the signature string
+   */
+  async signMessage(message: string): Promise<string> {
+    this.ensureConnected();
+
+    try {
+      this.logger.log('Requesting message signature');
+      const result = await this.communicator.sendRequest('signMessage', { message });
+      return result;
+    } catch (error) {
+      this.logger.error('Sign message failed:', error);
+      {
+        if (error instanceof ZeroXIOWalletError) {
+          throw error;
+        }
+        throw new ZeroXIOWalletError(
+          ErrorCode.SIGNATURE_FAILED,
+          'Failed to sign message',
+          error
+        );
+      }
+    }
+  }
+
+  // ===================
   // PRIVATE METHODS
   // ===================
 
