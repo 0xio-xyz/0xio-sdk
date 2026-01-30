@@ -60,7 +60,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@2.1.6/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.1.7/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -89,6 +89,7 @@ await wallet.initialize();
 // 3. Connect to user's wallet
 const connection = await wallet.connect();
 console.log('Connected!', connection.address);
+console.log('Public Key:', connection.publicKey); // Base64 Ed25519 key (32 bytes)
 
 // 4. Get balance
 const balance = await wallet.getBalance();
@@ -296,6 +297,7 @@ interface ConnectOptions {
 ```typescript
 interface ConnectEvent {
   address: string;
+  publicKey?: string;  // Base64-encoded Ed25519 public key (32 bytes)
   balance: Balance;
   networkInfo: NetworkInfo;
   permissions: Permission[];
@@ -336,10 +338,12 @@ console.log('Permissions:', info.permissions);
 
 ```typescript
 interface ConnectionInfo {
-  address: string;
-  connectedAt: number;
-  permissions: Permission[];
-  networkId: string;
+  isConnected: boolean;
+  address?: string;
+  publicKey?: string;  // Base64-encoded Ed25519 public key
+  balance?: Balance;
+  networkInfo?: NetworkInfo;
+  connectedAt?: number;
 }
 ```
 

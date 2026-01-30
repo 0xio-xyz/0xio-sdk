@@ -136,6 +136,7 @@ export class ZeroXIOWallet extends EventEmitter {
       this.connectionInfo = {
         isConnected: true,
         address: result.address,
+        publicKey: result.publicKey,
         balance: result.balance,
         networkInfo: result.networkInfo,
         connectedAt: Date.now()
@@ -143,6 +144,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       const connectEvent: ConnectEvent = {
         address: result.address,
+        publicKey: result.publicKey,
         balance: result.balance,
         networkInfo: result.networkInfo,
         permissions: result.permissions
@@ -224,6 +226,7 @@ export class ZeroXIOWallet extends EventEmitter {
         this.connectionInfo = {
           isConnected: true,
           address: result.address,
+          publicKey: result.publicKey,
           balance: balanceInfo,
           networkInfo,
           connectedAt: result.connectedAt || Date.now()

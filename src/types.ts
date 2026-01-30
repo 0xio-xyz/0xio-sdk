@@ -76,6 +76,7 @@ export interface Transaction {
 export interface ConnectionInfo {
   isConnected: boolean;
   address?: string;
+  publicKey?: string;
   balance?: Balance;
   networkInfo?: NetworkInfo;
   connectedAt?: number;
@@ -114,6 +115,7 @@ export interface WalletEvent<T = any> {
 
 export interface ConnectEvent {
   readonly address: string;
+  readonly publicKey?: string;
   readonly balance: Balance;
   readonly networkInfo: NetworkInfo;
   readonly permissions: Permission[];

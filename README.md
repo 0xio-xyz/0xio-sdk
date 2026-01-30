@@ -1,14 +1,14 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.6
+**Version:** 2.1.7
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.1.6
+## What's New in v2.1.7
 
-- **Message Signing**: Added `signMessage()` method for signing arbitrary messages with Ed25519
-- **Input Validation**: Message signing now validates input and provides clear error messages
-- **Better Logging**: Improved debug logging for signature requests
+- **Public Key Exposure**: `ConnectionInfo` and `ConnectEvent` now include `publicKey` (Base64 Ed25519 key)
+- **Address Verification**: DApps can verify `address == "oct" + Base58(SHA256(publicKey))`
+- **Improved API Auth**: Streamlined API key creation with direct public key verification
 
 ## Installation
 
@@ -32,6 +32,7 @@ await wallet.initialize();
 // 2. Connect
 const connection = await wallet.connect();
 console.log('Connected:', connection.address);
+console.log('Public Key:', connection.publicKey); // Base64 Ed25519 key
 
 // 3. Get Balance
 const balance = await wallet.getBalance();

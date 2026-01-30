@@ -2,6 +2,16 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.1.7] - 2026-01-27
+
+### Added
+- **Public Key Exposure**: `ConnectionInfo` and `ConnectEvent` now include `publicKey` field (Base64-encoded Ed25519 public key).
+- Enables DApps to perform cryptographic verification (e.g., API key signing) without additional extension requests.
+- Updated `wallet.connect()` and `wallet.getConnectionStatus()` to propagate `publicKey` from extension.
+
+### Changed
+- `WalletAddress` interface now has optional `publicKey` field for consistency.
+
 ## [2.1.6] - 2026-01-27
 
 ### Added
