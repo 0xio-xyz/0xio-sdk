@@ -184,7 +184,14 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.PERMISSION_DENIED]: 'Permission denied for this operation',
     [ErrorCode.WALLET_LOCKED]: 'Wallet is locked, please unlock first',
     [ErrorCode.RATE_LIMIT_EXCEEDED]: 'Rate limit exceeded, please try again later',
-    [ErrorCode.UNKNOWN_ERROR]: 'An unknown error occurred'
+    [ErrorCode.UNKNOWN_ERROR]: 'An unknown error occurred',
+    [ErrorCode.MALFORMED_TRANSACTION]: 'Transaction is malformed',
+    [ErrorCode.SELF_TRANSFER]: 'Cannot transfer to yourself',
+    [ErrorCode.SENDER_NOT_FOUND]: 'Sender address not found',
+    [ErrorCode.INVALID_SIGNATURE]: 'Invalid transaction signature',
+    [ErrorCode.DUPLICATE_TRANSACTION]: 'Duplicate transaction detected',
+    [ErrorCode.NONCE_TOO_FAR]: 'Transaction nonce is too far ahead',
+    [ErrorCode.INTERNAL_ERROR]: 'Internal server error'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';

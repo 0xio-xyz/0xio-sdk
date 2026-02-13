@@ -1,6 +1,6 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.7
+**Version:** 2.1.8
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 

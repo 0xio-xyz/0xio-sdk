@@ -46,9 +46,12 @@ export interface SignedTransaction {
   readonly public_key: string;
 }
 
+export type TransactionFinality = 'pending' | 'confirmed' | 'rejected';
+
 export interface TransactionResult {
   readonly txHash: string;
   readonly success: boolean;
+  readonly finality?: TransactionFinality;
   readonly message?: string;
   readonly explorerUrl?: string;
 }
@@ -68,6 +71,7 @@ export interface Transaction {
   readonly fee: number;
   readonly timestamp: number;
   readonly status: 'pending' | 'confirmed' | 'failed';
+  readonly finality?: TransactionFinality;
   readonly message?: string;
   readonly blockHeight?: number;
 }
@@ -166,7 +170,15 @@ export enum ErrorCode {
   PERMISSION_DENIED = 'PERMISSION_DENIED',
   WALLET_LOCKED = 'WALLET_LOCKED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+  // RPC error types from /send-tx and /send-batch
+  MALFORMED_TRANSACTION = 'MALFORMED_TRANSACTION',
+  SELF_TRANSFER = 'SELF_TRANSFER',
+  SENDER_NOT_FOUND = 'SENDER_NOT_FOUND',
+  INVALID_SIGNATURE = 'INVALID_SIGNATURE',
+  DUPLICATE_TRANSACTION = 'DUPLICATE_TRANSACTION',
+  NONCE_TOO_FAR = 'NONCE_TOO_FAR',
+  INTERNAL_ERROR = 'INTERNAL_ERROR'
 }
 
 export class ZeroXIOWalletError extends Error {

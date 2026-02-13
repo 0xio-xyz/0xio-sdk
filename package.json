@@ -1,6 +1,6 @@
 {
   "name": "@0xio/sdk",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "type": "module",
   "description": "Official TypeScript SDK for 0xio Wallet - Secure Octra blockchain integration for dApps",
   "main": "dist/index.js",
