@@ -2,6 +2,20 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.1.8] - 2026-02-13
+
+### Added
+- **Transaction Finality**: New `TransactionFinality` type (`'pending' | 'confirmed' | 'rejected'`) and `finality` field on `TransactionResult` and `Transaction` interfaces.
+- **RPC Error Codes**: 7 new `ErrorCode` entries for RPC-level transaction errors from `/send-tx` and `/send-batch`:
+  - `MALFORMED_TRANSACTION` — Transaction is malformed
+  - `SELF_TRANSFER` — Cannot transfer to yourself
+  - `SENDER_NOT_FOUND` — Sender address not found
+  - `INVALID_SIGNATURE` — Invalid transaction signature
+  - `DUPLICATE_TRANSACTION` — Duplicate transaction detected
+  - `NONCE_TOO_FAR` — Transaction nonce is too far ahead
+  - `INTERNAL_ERROR` — Internal server error
+- **Error Messages**: All new error codes have corresponding human-readable messages in `createErrorMessage()`.
+
 ## [2.1.7] - 2026-01-27
 
 ### Added

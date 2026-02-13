@@ -4,11 +4,11 @@
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.1.7
+## What's New in v2.1.8
 
-- **Public Key Exposure**: `ConnectionInfo` and `ConnectEvent` now include `publicKey` (Base64 Ed25519 key)
-- **Address Verification**: DApps can verify `address == "oct" + Base58(SHA256(publicKey))`
-- **Improved API Auth**: Streamlined API key creation with direct public key verification
+- **Transaction Finality**: `TransactionResult` and `Transaction` now include `finality` field (`'pending' | 'confirmed' | 'rejected'`)
+- **RPC Error Types**: 7 new error codes from `/send-tx` and `/send-batch` endpoints: `MALFORMED_TRANSACTION`, `SELF_TRANSFER`, `SENDER_NOT_FOUND`, `INVALID_SIGNATURE`, `DUPLICATE_TRANSACTION`, `NONCE_TOO_FAR`, `INTERNAL_ERROR`
+- **Error Messages**: All new error codes have human-readable messages via `createErrorMessage()`
 
 ## Installation
 
@@ -84,13 +84,21 @@ interface Balance {
 ### Transactions
 
 #### `wallet.sendTransaction(txData): Promise<TransactionResult>`
-Send a transaction.
+Send a transaction. Returns result with transaction finality status.
 
 ```typescript
 interface TransactionData {
   to: string;        // Recipient address (oct1...)
   amount: number;    // Amount in OCT
   message?: string;  // Optional memo
+}
+
+interface TransactionResult {
+  txHash: string;
+  success: boolean;
+  finality?: 'pending' | 'confirmed' | 'rejected';
+  message?: string;
+  explorerUrl?: string;
 }
 ```
 
@@ -130,15 +138,27 @@ wallet.on('networkChanged', (event) => console.log('Network:', event.newNetwork.
 import { ZeroXIOWalletError, ErrorCode } from '@0xio/sdk';
 
 try {
-  const signature = await wallet.signMessage('Hello');
+  const result = await wallet.sendTransaction({ to: 'oct1...', amount: 10 });
 } catch (error) {
   if (error instanceof ZeroXIOWalletError) {
     switch (error.code) {
       case ErrorCode.USER_REJECTED:
-        console.log('User rejected the signature request');
+        console.log('User rejected the request');
         break;
-      case ErrorCode.SIGNATURE_FAILED:
-        console.log('Signing failed:', error.message);
+      case ErrorCode.INSUFFICIENT_BALANCE:
+        console.log('Not enough balance');
+        break;
+      case ErrorCode.INVALID_SIGNATURE:
+        console.log('Invalid transaction signature');
+        break;
+      case ErrorCode.DUPLICATE_TRANSACTION:
+        console.log('Transaction already submitted');
+        break;
+      case ErrorCode.SELF_TRANSFER:
+        console.log('Cannot send to yourself');
+        break;
+      case ErrorCode.NONCE_TOO_FAR:
+        console.log('Transaction nonce too far ahead');
         break;
       case ErrorCode.WALLET_LOCKED:
         console.log('Please unlock your wallet');

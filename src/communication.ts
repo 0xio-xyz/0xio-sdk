@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 1.2.0
+ * @version 2.1.8
  * @license MIT
  */
 
@@ -507,18 +507,14 @@ export class ExtensionCommunicator extends EventEmitter {
     // Check for extension-injected indicators
     const win = window as any;
 
-    // Look for common extension indicators
+    // Look for extension-injected globals (matches injected.ts)
     return !!(
       win.wallet0xio ||
       win.ZeroXIOWallet ||
-      win.__0XIO_EXTENSION__ ||
-      win.__OCTRA_EXTENSION__ ||
       win.octraWallet ||
       (win.chrome?.runtime?.id) ||
-      document.querySelector('meta[name="0xio-extension"]') ||
-      document.querySelector('meta[name="octra-extension"]') ||
-      document.querySelector('[data-0xio-extension]') ||
-      document.querySelector('[data-octra-extension]')
+      document.querySelector('meta[name="0xio-dapp"]') ||
+      document.querySelector('[data-0xio-sdk-bridge]')
     );
   }
 
@@ -592,11 +588,11 @@ export class ExtensionCommunicator extends EventEmitter {
       hasPostMessage: typeof window.postMessage === 'function',
       origin: window.location?.origin,
       extensionDetection: {
-        hasOctraExtension: !!win.__OCTRA_EXTENSION__,
-        hasZeroXIOWallet: !!win.octraWallet,
+        hasWallet0xio: !!win.wallet0xio,
+        hasZeroXIOWallet: !!win.ZeroXIOWallet,
+        hasOctraWallet: !!win.octraWallet,
         hasChromeRuntimeId: !!(win.chrome?.runtime?.id),
-        hasMetaTag: !!document.querySelector('meta[name=\"octra-extension\"]'),
-        hasDataAttribute: !!document.querySelector('[data-octra-extension]')
+        hasSdkBridge: !!document.querySelector('[data-0xio-sdk-bridge]')
       }
     };
   }

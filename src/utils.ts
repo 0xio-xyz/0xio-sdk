@@ -41,7 +41,7 @@ export function isValidNetworkId(networkId: string): boolean {
     return false;
   }
 
-  const validNetworks = ['mainnet', 'testnet', 'devnet'];
+  const validNetworks = ['mainnet', 'custom'];
   return validNetworks.includes(networkId.toLowerCase());
 }
 

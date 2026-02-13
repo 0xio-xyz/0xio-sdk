@@ -60,7 +60,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@2.1.7/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.1.8/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -188,12 +188,15 @@ try {
   });
 
   console.log('Success!', result.txHash);
+  console.log('Finality:', result.finality); // 'pending' | 'confirmed' | 'rejected'
 
 } catch (error) {
   if (error.code === 'USER_REJECTED') {
     console.log('User cancelled transaction');
   } else if (error.code === 'INSUFFICIENT_BALANCE') {
     console.log('Not enough balance');
+  } else if (error.code === 'DUPLICATE_TRANSACTION') {
+    console.log('Transaction already submitted');
   } else {
     console.error('Transaction failed:', error.message);
   }
@@ -230,8 +233,8 @@ type Permission =
   | 'read_balance'
   | 'send_transactions'
   | 'sign_messages'
-  | 'read_private_balance'
-  | 'send_private_transactions';
+  | 'view_private_balance'
+  | 'private_transfers';
 ```
 
 **Example:**
@@ -263,7 +266,7 @@ if (initialized) {
 
 **Returns:** `Promise<boolean>` - true if initialization successful
 
-**Throws:** `OctraWalletError` if extension not found or initialization fails
+**Throws:** `ZeroXIOWalletError` if extension not found or initialization fails
 
 ---
 
@@ -287,8 +290,8 @@ console.log('Network:', connection.networkInfo.name);
 
 ```typescript
 interface ConnectOptions {
-  requestPrivateAccess?: boolean;  // Request private balance access
-  timeout?: number;                // Connection timeout (ms)
+  requestPermissions?: Permission[];  // Permissions to request
+  networkId?: string;                 // Target network ID
 }
 ```
 
@@ -423,11 +426,11 @@ const result = await wallet.sendTransaction({
   to: 'oct1recipient...',
   amount: 100.5,
   message: 'Payment for invoice #123',
-  feeLevel: 'medium'
+  feeLevel: 3 // 1 = standard, 3 = priority
 });
 
 console.log('Transaction hash:', result.txHash);
-console.log('Fee paid:', result.fee);
+console.log('Finality:', result.finality);
 ```
 
 **Parameters:**
@@ -437,8 +440,8 @@ interface TransactionData {
   to: string;                    // Recipient address
   amount: number;                // Amount in OCT
   message?: string;              // Optional memo
-  feeLevel?: FeeLevel;          // 'low' | 'medium' | 'high'
-  customFee?: number;           // Override fee
+  feeLevel?: 1 | 3;             // 1 = standard, 3 = priority
+  isPrivate?: boolean;           // Private transfer flag
 }
 ```
 
@@ -447,12 +450,10 @@ interface TransactionData {
 ```typescript
 interface TransactionResult {
   txHash: string;
-  from: string;
-  to: string;
-  amount: number;
-  fee: number;
-  timestamp: number;
-  status: 'pending' | 'confirmed' | 'failed';
+  success: boolean;
+  finality?: 'pending' | 'confirmed' | 'rejected';
+  message?: string;
+  explorerUrl?: string;
 }
 ```
 
@@ -1025,11 +1026,19 @@ enum ErrorCode {
   INVALID_AMOUNT = 'INVALID_AMOUNT',
   NETWORK_ERROR = 'NETWORK_ERROR',
   TRANSACTION_FAILED = 'TRANSACTION_FAILED',
+  SIGNATURE_FAILED = 'SIGNATURE_FAILED',
   PERMISSION_DENIED = 'PERMISSION_DENIED',
   WALLET_LOCKED = 'WALLET_LOCKED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
-  TIMEOUT = 'TIMEOUT',
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+  // RPC error types from /send-tx and /send-batch
+  MALFORMED_TRANSACTION = 'MALFORMED_TRANSACTION',
+  SELF_TRANSFER = 'SELF_TRANSFER',
+  SENDER_NOT_FOUND = 'SENDER_NOT_FOUND',
+  INVALID_SIGNATURE = 'INVALID_SIGNATURE',
+  DUPLICATE_TRANSACTION = 'DUPLICATE_TRANSACTION',
+  NONCE_TOO_FAR = 'NONCE_TOO_FAR',
+  INTERNAL_ERROR = 'INTERNAL_ERROR'
 }
 ```
 
@@ -1062,6 +1071,27 @@ try {
 
       case ErrorCode.RATE_LIMIT_EXCEEDED:
         showError('Too many requests, please slow down');
+        break;
+
+      // RPC-level transaction errors
+      case ErrorCode.MALFORMED_TRANSACTION:
+        showError('Transaction is malformed');
+        break;
+
+      case ErrorCode.SELF_TRANSFER:
+        showError('Cannot send to yourself');
+        break;
+
+      case ErrorCode.DUPLICATE_TRANSACTION:
+        showError('This transaction was already submitted');
+        break;
+
+      case ErrorCode.INVALID_SIGNATURE:
+        showError('Invalid transaction signature');
+        break;
+
+      case ErrorCode.NONCE_TOO_FAR:
+        showError('Transaction nonce is too far ahead, try again');
         break;
 
       default:
