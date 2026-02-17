@@ -17,9 +17,8 @@ export function isValidAddress(address: string): boolean {
     return false;
   }
 
-  // Octra addresses should match the expected format
-  // This is a basic validation - adjust based on actual Octra address format
-  const addressRegex = /^[A-Za-z0-9]{20,64}$/;
+  // Octra addresses use "oct" prefix followed by alphanumeric characters (47 chars total)
+  const addressRegex = /^oct[A-Za-z0-9]{44}$/;
   return addressRegex.test(address);
 }
 
@@ -142,7 +141,7 @@ export function toMicroOCT(amount: number): string {
     );
   }
 
-  // Assuming OCT has 6 decimal places like many cryptocurrencies
+  // OCT uses 6 decimal places (1 OCT = 1,000,000 raw units per JSON-RPC spec)
   const microOCT = Math.round(amount * 1_000_000);
   return microOCT.toString();
 }
@@ -318,7 +317,7 @@ export function checkBrowserSupport(): {
  */
 export function generateMockData() {
   return {
-    address: 'OCT' + Math.random().toString(36).substr(2, 20).toUpperCase(),
+    address: 'oct' + Math.random().toString(36).substring(2, 22) + Math.random().toString(36).substring(2, 26),
     balance: {
       public: Math.floor(Math.random() * 10000),
       private: Math.floor(Math.random() * 1000),
@@ -326,11 +325,11 @@ export function generateMockData() {
       currency: 'OCT' as const
     },
     networkInfo: {
-      id: 'testnet',
-      name: 'Octra Testnet',
-      rpcUrl: 'https://testnet.octra.network',
-      color: '#f59e0b',
-      isTestnet: true
+      id: 'mainnet',
+      name: 'Octra Mainnet Alpha',
+      rpcUrl: 'https://octra.network',
+      color: '#6366f1',
+      isTestnet: false
     }
   };
 }

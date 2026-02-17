@@ -171,7 +171,7 @@ export enum ErrorCode {
   WALLET_LOCKED = 'WALLET_LOCKED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
-  // RPC error types from /send-tx and /send-batch
+  // RPC error types from octra_submit and octra_submitBatch
   MALFORMED_TRANSACTION = 'MALFORMED_TRANSACTION',
   SELF_TRANSFER = 'SELF_TRANSFER',
   SENDER_NOT_FOUND = 'SENDER_NOT_FOUND',

@@ -16,6 +16,14 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
   - `INTERNAL_ERROR` — Internal server error
 - **Error Messages**: All new error codes have corresponding human-readable messages in `createErrorMessage()`.
 
+### Fixed
+- Address validation now enforces `oct` prefix and 47-char length per Octra address spec.
+- Mock data generates correct `oct`-prefixed addresses instead of uppercase `OCT`.
+- `getBalance()` throws `ZeroXIOWalletError` instead of generic `Error` when address is missing.
+- Decimal conversion comment now references JSON-RPC spec (6 decimal places confirmed).
+- Stale REST endpoint comment (`/send-tx`, `/send-batch`) updated to JSON-RPC method names.
+- Mock data network config updated from testnet to mainnet (`octra.network`).
+
 ## [2.1.7] - 2026-01-27
 
 ### Added

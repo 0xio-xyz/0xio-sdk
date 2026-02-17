@@ -277,7 +277,7 @@ export class ZeroXIOWallet extends EventEmitter {
     try {
       const address = this.getAddress();
       if (!address) {
-        throw new Error('No address found');
+        throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'No address found');
       }
 
       // Fetch balance from extension (bypasses CORS, has access to private balance)
