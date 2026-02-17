@@ -1031,7 +1031,7 @@ enum ErrorCode {
   WALLET_LOCKED = 'WALLET_LOCKED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
-  // RPC error types from /send-tx and /send-batch
+  // RPC error types from octra_submit and octra_submitBatch
   MALFORMED_TRANSACTION = 'MALFORMED_TRANSACTION',
   SELF_TRANSFER = 'SELF_TRANSFER',
   SENDER_NOT_FOUND = 'SENDER_NOT_FOUND',
@@ -1420,4 +1420,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Built by the 0xio Team for the Octra Network ecosystem**
+**Built by 0xio Labs for the Octra Network ecosystem**

@@ -7,7 +7,7 @@ Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 ## What's New in v2.1.8
 
 - **Transaction Finality**: `TransactionResult` and `Transaction` now include `finality` field (`'pending' | 'confirmed' | 'rejected'`)
-- **RPC Error Types**: 7 new error codes from `/send-tx` and `/send-batch` endpoints: `MALFORMED_TRANSACTION`, `SELF_TRANSFER`, `SENDER_NOT_FOUND`, `INVALID_SIGNATURE`, `DUPLICATE_TRANSACTION`, `NONCE_TOO_FAR`, `INTERNAL_ERROR`
+- **RPC Error Types**: 7 new error codes from `octra_submit` and `octra_submitBatch` RPC methods: `MALFORMED_TRANSACTION`, `SELF_TRANSFER`, `SENDER_NOT_FOUND`, `INVALID_SIGNATURE`, `DUPLICATE_TRANSACTION`, `NONCE_TOO_FAR`, `INTERNAL_ERROR`
 - **Error Messages**: All new error codes have human-readable messages via `createErrorMessage()`
 
 ## Installation
@@ -179,4 +179,4 @@ See [DOCUMENTATION.md](DOCUMENTATION.md) for complete API reference.
 
 ## License
 
-MIT License. Copyright 2026 0xio Team.
+MIT License. Copyright 2026 0xio Labs.

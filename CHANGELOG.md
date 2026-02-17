@@ -6,7 +6,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 ### Added
 - **Transaction Finality**: New `TransactionFinality` type (`'pending' | 'confirmed' | 'rejected'`) and `finality` field on `TransactionResult` and `Transaction` interfaces.
-- **RPC Error Codes**: 7 new `ErrorCode` entries for RPC-level transaction errors from `/send-tx` and `/send-batch`:
+- **RPC Error Codes**: 7 new `ErrorCode` entries for RPC-level transaction errors from `octra_submit` and `octra_submitBatch`:
   - `MALFORMED_TRANSACTION` — Transaction is malformed
   - `SELF_TRANSFER` — Cannot transfer to yourself
   - `SENDER_NOT_FOUND` — Sender address not found
