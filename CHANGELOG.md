@@ -2,6 +2,28 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.2.0] - 2026-03-08
+
+### Added
+- **Devnet Network Support**: Added full Octra Devnet configuration (`rpcUrl`, `explorerUrl`, `explorerAddressUrl`, `indexerUrl`) to the built-in `NETWORKS` registry.
+- **Expanded `NetworkInfo` Type**: Added `explorerAddressUrl`, `indexerUrl`, and `supportsPrivacy` fields to the `NetworkInfo` interface for richer network metadata.
+- **Privacy Flag**: Each network now exposes `supportsPrivacy: boolean` so DApps can detect FHE/encrypted balance support at the config level.
+- **Devnet Validation**: `isValidNetworkId()` now accepts `'devnet'` in addition to `'mainnet'` and `'custom'`.
+
+### Fixed
+- **Explorer URLs**: Mainnet `explorerUrl` and `explorerAddressUrl` now include trailing `/` to match all other 0xio platforms (extension, app, desktop).
+- **Mock Data**: `generateMockData()` now returns a `NetworkInfo` object with all new fields (`explorerAddressUrl`, `indexerUrl`, `supportsPrivacy`, correct URLs).
+
+### Network Configurations
+
+| Network | RPC | Explorer | Privacy | Testnet |
+|---------|-----|----------|---------|---------|
+| Mainnet Alpha | `https://octra.network` | `https://octrascan.io` | No | No |
+| Devnet | `http://165.227.225.79:8080` | `https://devnet.octrascan.io` | Yes | Yes |
+| Custom | User-defined | User-defined | No | No |
+
+---
+
 ## [2.1.8] - 2026-02-13
 
 ### Added

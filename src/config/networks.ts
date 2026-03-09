@@ -9,17 +9,34 @@ export const NETWORKS: Record<string, NetworkInfo> = {
     id: 'mainnet',
     name: 'Octra Mainnet Alpha',
     rpcUrl: 'https://octra.network',
-    explorerUrl: 'https://octrascan.io/',
-    color: '#6366f1',
+    explorerUrl: 'https://octrascan.io/transactions/',
+    explorerAddressUrl: 'https://octrascan.io/addresses/',
+    indexerUrl: 'https://network.octrascan.com',
+    supportsPrivacy: false,
+    color: '#f59e0b',
     isTestnet: false
+  },
+  'devnet': {
+    id: 'devnet',
+    name: 'Octra Devnet',
+    rpcUrl: 'http://165.227.225.79:8080',
+    explorerUrl: 'https://devnet.octrascan.io/tx.html?hash=',
+    explorerAddressUrl: 'https://devnet.octrascan.io/address.html?addr=',
+    indexerUrl: 'https://devnet.octrascan.io',
+    supportsPrivacy: true,
+    color: '#8b5cf6',
+    isTestnet: true
   },
   'custom': {
     id: 'custom',
     name: 'Custom Network',
     rpcUrl: '',
     explorerUrl: '',
+    explorerAddressUrl: '',
+    indexerUrl: '',
+    supportsPrivacy: false,
     color: '#64748b',
-    isTestnet: false // User configurable - can be mainnet or testnet
+    isTestnet: false
   }
 };
 

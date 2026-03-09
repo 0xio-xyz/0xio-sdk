@@ -40,7 +40,7 @@ export function isValidNetworkId(networkId: string): boolean {
     return false;
   }
 
-  const validNetworks = ['mainnet', 'custom'];
+  const validNetworks = ['mainnet', 'devnet', 'custom'];
   return validNetworks.includes(networkId.toLowerCase());
 }
 
@@ -328,7 +328,11 @@ export function generateMockData() {
       id: 'mainnet',
       name: 'Octra Mainnet Alpha',
       rpcUrl: 'https://octra.network',
-      color: '#6366f1',
+      explorerUrl: 'https://octrascan.io/transactions/',
+      explorerAddressUrl: 'https://octrascan.io/addresses/',
+      indexerUrl: 'https://network.octrascan.com',
+      supportsPrivacy: false,
+      color: '#f59e0b',
       isTestnet: false
     }
   };

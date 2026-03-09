@@ -21,6 +21,9 @@ export interface NetworkInfo {
   readonly name: string;
   readonly rpcUrl: string;
   readonly explorerUrl?: string;
+  readonly explorerAddressUrl?: string;
+  readonly indexerUrl?: string;
+  readonly supportsPrivacy: boolean;
   readonly color: string;
   readonly isTestnet: boolean;
 }

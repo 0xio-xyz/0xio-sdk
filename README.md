@@ -1,14 +1,15 @@
 # 0xio Wallet SDK
 
-**Version:** 2.1.8
+**Version:** 2.2.0
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.1.8
+## What's New in v2.2.0
 
-- **Transaction Finality**: `TransactionResult` and `Transaction` now include `finality` field (`'pending' | 'confirmed' | 'rejected'`)
-- **RPC Error Types**: 7 new error codes from `octra_submit` and `octra_submitBatch` RPC methods: `MALFORMED_TRANSACTION`, `SELF_TRANSFER`, `SENDER_NOT_FOUND`, `INVALID_SIGNATURE`, `DUPLICATE_TRANSACTION`, `NONCE_TOO_FAR`, `INTERNAL_ERROR`
-- **Error Messages**: All new error codes have human-readable messages via `createErrorMessage()`
+- **Devnet Support**: Built-in Octra Devnet network configuration — DApps can now target devnet out of the box
+- **Expanded `NetworkInfo`**: New fields `explorerAddressUrl`, `indexerUrl`, and `supportsPrivacy` for richer network metadata
+- **Privacy Detection**: `supportsPrivacy` flag lets DApps check if a network supports FHE/encrypted balances
+- **Explorer URL Fix**: Mainnet explorer URLs now include trailing `/` for correct link generation
 
 ## Installation
 
@@ -165,6 +166,46 @@ try {
         break;
     }
   }
+}
+```
+
+## Networks
+
+The SDK ships with built-in configurations for Octra networks:
+
+```typescript
+import { NETWORKS, getNetworkConfig } from '@0xio/sdk';
+
+// Get devnet config
+const devnet = getNetworkConfig('devnet');
+console.log(devnet.rpcUrl);           // http://165.227.225.79:8080
+console.log(devnet.supportsPrivacy);  // true
+console.log(devnet.isTestnet);        // true
+
+// Get mainnet config
+const mainnet = getNetworkConfig('mainnet');
+console.log(mainnet.rpcUrl);          // https://octra.network
+console.log(mainnet.supportsPrivacy); // false
+```
+
+| Network | Privacy (FHE) | Explorer |
+|---------|:---:|---|
+| Mainnet Alpha | No | [octrascan.io](https://octrascan.io) |
+| Devnet | Yes | [devnet.octrascan.io](https://devnet.octrascan.io) |
+
+### NetworkInfo Type
+
+```typescript
+interface NetworkInfo {
+  id: string;
+  name: string;
+  rpcUrl: string;
+  explorerUrl?: string;         // Transaction explorer base URL
+  explorerAddressUrl?: string;  // Address explorer base URL
+  indexerUrl?: string;          // Indexer/API base URL
+  supportsPrivacy: boolean;     // FHE encrypted balance support
+  color: string;                // Brand color hex
+  isTestnet: boolean;
 }
 ```
 

@@ -27,7 +27,7 @@ The 0xio SDK provides a comprehensive toolkit for building decentralized applica
 - **Message Signing** - Sign arbitrary messages for authentication and attestation
 - **Balance Queries** - Read public and encrypted private balances
 - **Event System** - Real-time updates for all wallet events
-- **Network Management** - Support for Mainnet Alpha and custom networks
+- **Network Management** - Support for Mainnet Alpha, Devnet, and custom networks
 - **Type Safety** - Full TypeScript definitions
 - **Framework Agnostic** - Works with React, Vue, Svelte, or vanilla JS
 
@@ -60,7 +60,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@2.1.8/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.2.0/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -224,7 +224,7 @@ interface SDKConfig {
   appUrl?: string;                   // Your app URL (auto-detected)
   appIcon?: string;                  // Icon URL for connection dialog
   requiredPermissions?: Permission[]; // Permissions to request
-  networkId?: string;                // Target network ('mainnet' | 'testnet')
+  networkId?: string;                // Target network ('mainnet' | 'devnet' | 'custom')
   debug?: boolean;                   // Enable debug logging
 }
 
@@ -246,7 +246,7 @@ const wallet = new ZeroXIOWallet({
   appVersion: '2.1.0',
   appIcon: 'https://myapp.com/icon.png',
   requiredPermissions: ['read_balance', 'send_transactions'],
-  networkId: 'testnet',
+  networkId: 'devnet',
   debug: process.env.NODE_ENV === 'development'
 });
 ```
@@ -398,18 +398,23 @@ const network = await wallet.getNetworkInfo();
 console.log('Network:', network.name);
 console.log('RPC:', network.rpcUrl);
 console.log('Explorer:', network.explorerUrl);
+console.log('Privacy:', network.supportsPrivacy); // true on devnet
+console.log('Testnet:', network.isTestnet);
 ```
 
 **Returns:**
 
 ```typescript
 interface NetworkInfo {
-  id: string;              // 'mainnet' | 'testnet' | 'custom'
-  name: string;            // Display name
-  rpcUrl: string;          // RPC endpoint
-  explorerUrl?: string;    // Block explorer
-  explorerAddressUrl?: string;
-  color?: string;          // UI color
+  id: string;                    // 'mainnet' | 'devnet' | 'custom'
+  name: string;                  // Display name
+  rpcUrl: string;                // RPC endpoint
+  explorerUrl?: string;          // Transaction explorer base URL
+  explorerAddressUrl?: string;   // Address explorer base URL
+  indexerUrl?: string;           // Indexer/API base URL
+  supportsPrivacy: boolean;      // FHE encrypted balance support
+  color: string;                 // Brand color hex
+  isTestnet: boolean;            // Whether this is a test network
 }
 ```
 
@@ -741,6 +746,34 @@ const data = await withTimeout(
 ---
 
 ## Advanced Usage
+
+### Built-in Networks
+
+The SDK includes pre-configured network definitions:
+
+```typescript
+import { NETWORKS, getNetworkConfig, getAllNetworks } from '@0xio/sdk';
+
+// Get a specific network
+const devnet = getNetworkConfig('devnet');
+console.log(devnet.rpcUrl);           // http://165.227.225.79:8080
+console.log(devnet.supportsPrivacy);  // true (FHE enabled)
+console.log(devnet.isTestnet);        // true
+
+const mainnet = getNetworkConfig('mainnet');
+console.log(mainnet.rpcUrl);          // https://octra.network
+console.log(mainnet.supportsPrivacy); // false
+
+// List all available networks
+const all = getAllNetworks();
+all.forEach(n => console.log(n.id, n.name));
+```
+
+| Network | RPC | Privacy (FHE) | Testnet |
+|---------|-----|:---:|:---:|
+| Mainnet Alpha | `https://octra.network` | No | No |
+| Devnet | `http://165.227.225.79:8080` | Yes | Yes |
+| Custom | User-defined | No | No |
 
 ### Custom Network Configuration
 
@@ -1170,9 +1203,15 @@ const message = `Authorize action\nNonce: ${nonce}`;
 
 ```typescript
 const network = await wallet.getNetworkInfo();
-if (network.id !== 'mainnet') {
-  console.warn('Not on mainnet!');
+if (network.isTestnet) {
+  console.warn('Connected to testnet:', network.name);
   // Show warning to user
+}
+
+// Check privacy support before using FHE features
+if (network.supportsPrivacy) {
+  const balance = await wallet.getBalance();
+  console.log('Private balance:', balance.private);
 }
 ```
 
