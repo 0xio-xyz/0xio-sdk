@@ -9,6 +9,8 @@ import {
   Balance,
   ConnectionInfo,
   ConnectOptions,
+  ContractCallData,
+  ContractViewCallData,
   NetworkInfo,
   SDKConfig,
   TransactionData,
@@ -21,6 +23,7 @@ import {
   ZeroXIOWalletError,
   ConnectEvent,
   DisconnectEvent,
+  AccountChangedEvent,
   BalanceChangedEvent,
   NetworkChangedEvent
 } from './types';
@@ -406,6 +409,105 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
+   * Call a smart contract method (state-changing).
+   * The extension builds, signs, and submits the transaction via octra_submit.
+   */
+  async callContract(callData: ContractCallData): Promise<TransactionResult> {
+    this.ensureConnected();
+
+    try {
+      this.logger.log('Calling contract:', callData);
+
+      const result = await this.communicator.sendRequest('call_contract', {
+        contract: callData.contract,
+        method: callData.method,
+        params: callData.params,
+        amount: callData.amount != null ? String(callData.amount) : '0',
+        ou: callData.ou != null ? String(callData.ou) : '10000',
+      });
+
+      this.logger.log('Contract call result:', result);
+      return result;
+    } catch (error) {
+      this.logger.error('Contract call failed:', error);
+
+      if (error instanceof ZeroXIOWalletError) {
+        throw error;
+      }
+
+      throw new ZeroXIOWalletError(
+        ErrorCode.TRANSACTION_FAILED,
+        'Failed to call contract',
+        error
+      );
+    }
+  }
+
+  /**
+   * Read-only contract view call (no signing, no approval popup).
+   * Use this to query contract state without submitting a transaction.
+   */
+  async contractCallView(viewData: ContractViewCallData): Promise<any> {
+    this.ensureInitialized();
+
+    try {
+      this.logger.log('Contract view call:', viewData);
+
+      const result = await this.communicator.sendRequest('contract_call_view', {
+        contract: viewData.contract,
+        method: viewData.method,
+        params: viewData.params,
+        caller: viewData.caller || this.getAddress() || '',
+      });
+
+      this.logger.log('Contract view result:', result);
+      return result;
+    } catch (error) {
+      this.logger.error('Contract view call failed:', error);
+
+      if (error instanceof ZeroXIOWalletError) {
+        throw error;
+      }
+
+      throw new ZeroXIOWalletError(
+        ErrorCode.NETWORK_ERROR,
+        'Failed to call contract view',
+        error
+      );
+    }
+  }
+
+  /**
+   * Read contract storage by key.
+   */
+  async getContractStorage(contract: string, key: string): Promise<string | null> {
+    this.ensureInitialized();
+
+    try {
+      this.logger.log('Getting contract storage:', { contract, key });
+
+      const result = await this.communicator.sendRequest('get_contract_storage', {
+        contract,
+        key,
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error('Get contract storage failed:', error);
+
+      if (error instanceof ZeroXIOWalletError) {
+        throw error;
+      }
+
+      throw new ZeroXIOWalletError(
+        ErrorCode.NETWORK_ERROR,
+        'Failed to get contract storage',
+        error
+      );
+    }
+  }
+
+  /**
    * Get transaction history
    */
   async getTransactionHistory(page = 1, limit = 20): Promise<TransactionHistory> {
@@ -596,6 +698,13 @@ export class ZeroXIOWallet extends EventEmitter {
       );
     }
 
+    if (message.length > 10_000) {
+      throw new ZeroXIOWalletError(
+        ErrorCode.SIGNATURE_FAILED,
+        'Message too long (max 10,000 characters)'
+      );
+    }
+
     try {
       this.logger.log('Requesting message signature for:', message.substring(0, 100) + (message.length > 100 ? '...' : ''));
       const result = await this.communicator.sendRequest('signMessage', { message });
@@ -676,7 +785,7 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * Handle account changed event from extension
    */
-  private handleAccountChanged(data: any): void {
+  private handleAccountChanged(data: { address: string; balance?: Balance }): void {
     const previousAddress = this.connectionInfo.address;
 
     this.connectionInfo.address = data.address;
@@ -684,10 +793,10 @@ export class ZeroXIOWallet extends EventEmitter {
       this.connectionInfo.balance = data.balance;
     }
 
-    const accountChangedEvent = {
+    const accountChangedEvent: AccountChangedEvent = {
       previousAddress,
       newAddress: data.address,
-      balance: data.balance
+      balance: data.balance ?? this.connectionInfo.balance!
     };
 
     this.emit('accountChanged', accountChangedEvent);
@@ -698,7 +807,7 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * Handle network changed event from extension
    */
-  private handleNetworkChanged(data: any): void {
+  private handleNetworkChanged(data: { networkInfo: NetworkInfo }): void {
     const previousNetwork = this.connectionInfo.networkInfo;
     this.connectionInfo.networkInfo = data.networkInfo;
 
@@ -715,7 +824,7 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * Handle balance changed event from extension
    */
-  private handleBalanceChanged(data: any): void {
+  private handleBalanceChanged(data: { balance: Balance }): void {
     const previousBalance = this.connectionInfo.balance;
     this.connectionInfo.balance = data.balance;
 

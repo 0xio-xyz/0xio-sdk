@@ -39,6 +39,9 @@ export type {
   SDKConfig,
 
   // Transaction types
+  ContractParams,
+  ContractCallData,
+  ContractViewCallData,
   TransactionData,
   SignedTransaction,
   TransactionFinality,
@@ -125,8 +128,9 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.2.0';
-export const MIN_EXTENSION_VERSION = '2.0.1';
+export const SDK_VERSION = '2.3.0';
+export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
+export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
 
 // Quick setup function for simple use cases
@@ -203,8 +207,7 @@ if (typeof window !== 'undefined') {
   // Development mode detection
   const isDevelopment = process.env.NODE_ENV === 'development' ||
     window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    window.location.hostname.includes('dev');
+    window.location.hostname === '127.0.0.1';
 
   if (isDevelopment) {
     // Set debug flag but don't automatically log
@@ -234,7 +237,7 @@ if (typeof window !== 'undefined') {
         window.postMessage({
           source: '0xio-sdk-bridge',
           event: { type: eventType, data }
-        }, '*');
+        }, window.location.origin);
         console.log('[0xio SDK] Simulated extension event:', eventType, data);
       },
       showWelcome: () => {

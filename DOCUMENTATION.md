@@ -24,6 +24,7 @@ The 0xio SDK provides a comprehensive toolkit for building decentralized applica
 
 - **Wallet Connection** - Seamless integration with 0xio Wallet browser extension
 - **Transaction Management** - Send public and private transactions
+- **Smart Contract Interaction** - Call contracts (state-changing and view), read storage
 - **Message Signing** - Sign arbitrary messages for authentication and attestation
 - **Balance Queries** - Read public and encrypted private balances
 - **Event System** - Real-time updates for all wallet events
@@ -60,7 +61,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@2.2.0/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.3.0/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -488,6 +489,117 @@ interface TransactionHistory {
   totalPages: number;
 }
 ```
+
+---
+
+### Smart Contract Methods
+
+#### `callContract(data: ContractCallData): Promise<TransactionResult>`
+
+Execute a state-changing smart contract call. The extension builds, signs, and submits the transaction via `octra_submit`. The user will be shown an approval popup with the contract address and method name.
+
+```typescript
+import { ContractCallData } from '@0xio/sdk';
+
+// Swap tokens on a DEX contract
+const result = await wallet.callContract({
+  contract: 'oct26LiaGUz78Jnby2TWEHcmboKHyupnu1NX1G3Evz28YHm',
+  method: 'swap',
+  params: [100000, true, 90000],  // AML uses flat args, NOT array-wrapped
+  amount: '0',    // Native OCT to send (optional, default '0')
+  ou: '10000',    // Operational units (optional, default '10000')
+});
+
+console.log('TX Hash:', result.txHash);
+```
+
+**Parameters:**
+
+```typescript
+import { ContractParams } from '@0xio/sdk';
+
+interface ContractCallData {
+  contract: string;             // Contract address (oct-prefixed, 47 chars)
+  method: string;               // AML method name
+  params: ContractParams;       // Method arguments — flat primitives: [amount, flag]
+  amount?: string | number;     // Native OCT to send (default '0')
+  ou?: string | number;         // Operational units (default '10000')
+}
+
+// ContractParams = ReadonlyArray<string | number | boolean>
+```
+
+**Returns:** `Promise<TransactionResult>` with `txHash`, `success`, `finality`
+
+**Notes:**
+- AML contract calls use **flat arguments**: `params: [arg1, arg2]` not `params: [[arg1, arg2]]`
+- For methods that require sending native OCT (e.g., `wrap`, `deposit`), set the `amount` field
+- The extension handles nonce, signing, and broadcasting automatically
+
+---
+
+#### `contractCallView(data: ContractViewCallData): Promise<any>`
+
+Read-only contract query. Does **not** require wallet unlock, signing, or user approval. Only requires `initialize()` (not `connect()`).
+
+```typescript
+// Query contract state
+const price = await wallet.contractCallView({
+  contract: 'oct26LiaGUz78Jnby2TWEHcmboKHyupnu1NX1G3Evz28YHm',
+  method: 'get_active_price',
+  params: [],
+});
+console.log('Active price:', price);
+
+// Query with parameters
+const reserves = await wallet.contractCallView({
+  contract: 'oct26LiaGUz78Jnby2TWEHcmboKHyupnu1NX1G3Evz28YHm',
+  method: 'get_bin_reserves',
+  params: [8388608],
+  caller: 'oct1youraddress...',  // Optional caller context
+});
+console.log('Reserves:', reserves);
+```
+
+**Parameters:**
+
+```typescript
+interface ContractViewCallData {
+  contract: string;           // Contract address (oct-prefixed, 47 chars)
+  method: string;             // View method name
+  params: ContractParams;     // Method arguments — flat primitives: [binId, address]
+  caller?: string;            // Optional caller address (defaults to connected address)
+}
+```
+
+**Returns:** `Promise<any>` - The raw result from the contract method
+
+---
+
+#### `getContractStorage(contract: string, key: string): Promise<string | null>`
+
+Read a single key from contract storage. Does **not** require wallet unlock or user approval.
+
+```typescript
+const totalSupply = await wallet.getContractStorage(
+  'oct7qrpW3T8mXYbZfAZrkLQKGAtD6ZswCf9Px5jPXnfmtiK',
+  'total_supply'
+);
+console.log('Total supply:', totalSupply);
+
+// Returns null if key doesn't exist
+const missing = await wallet.getContractStorage(contractAddr, 'nonexistent');
+console.log(missing); // null
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `contract` | string | Yes | Contract address |
+| `key` | string | Yes | Storage key to read |
+
+**Returns:** `Promise<string | null>` - The storage value, or `null` if not found
 
 ---
 

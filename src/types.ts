@@ -37,6 +37,33 @@ export interface TransactionData {
   readonly isPrivate?: boolean;
 }
 
+/** Flat array of AML-compatible primitive values for contract method arguments. */
+export type ContractParams = ReadonlyArray<string | number | boolean>;
+
+export interface ContractCallData {
+  /** Contract address (oct-prefixed, 47 chars) */
+  readonly contract: string;
+  /** Contract method name (e.g. 'swap', 'approve') */
+  readonly method: string;
+  /** Method arguments — flat primitives, NOT array-wrapped: `[amount, flag]` not `[[amount, flag]]` */
+  readonly params: ContractParams;
+  /** Native OCT to send with call (human-readable for sendTransaction, micro-units for callContract) */
+  readonly amount?: string | number;
+  /** Operation units / gas limit (default: 10000) */
+  readonly ou?: string | number;
+}
+
+export interface ContractViewCallData {
+  /** Contract address (oct-prefixed, 47 chars) */
+  readonly contract: string;
+  /** Contract method name (e.g. 'balance_of', 'get_active_bin') */
+  readonly method: string;
+  /** Method arguments — flat primitives, NOT array-wrapped */
+  readonly params: ContractParams;
+  /** Caller address for view context (defaults to connected wallet) */
+  readonly caller?: string;
+}
+
 export interface SignedTransaction {
   readonly from: string;
   readonly to_: string;

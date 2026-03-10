@@ -1,15 +1,18 @@
 # 0xio Wallet SDK
 
-**Version:** 2.2.0
+**Version:** 2.3.0
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.2.0
+## What's New in v2.3.0
 
-- **Devnet Support**: Built-in Octra Devnet network configuration — DApps can now target devnet out of the box
-- **Expanded `NetworkInfo`**: New fields `explorerAddressUrl`, `indexerUrl`, and `supportsPrivacy` for richer network metadata
-- **Privacy Detection**: `supportsPrivacy` flag lets DApps check if a network supports FHE/encrypted balances
-- **Explorer URL Fix**: Mainnet explorer URLs now include trailing `/` for correct link generation
+- **Smart Contract Calls**: New `callContract()` for state-changing contract interaction (signed, with approval popup)
+- **Contract View Calls**: New `contractCallView()` for read-only queries (no signing, no popup)
+- **Contract Storage**: New `getContractStorage()` to read on-chain contract storage by key
+- **Type Safety**: New `ContractParams` type (`ReadonlyArray<string | number | boolean>`) replaces `any` in contract interfaces; typed event handlers
+- **Error Consistency**: `getNetworkConfig()` now throws `ZeroXIOWalletError` instead of generic `Error`
+- **Security Fixes**: Fixed wildcard origin in dev utils, added signMessage length limit, narrowed dev detection
+- **Message Limit**: Raised `isValidMessage()` from 280 to 100K chars to support contract call parameters
 
 ## Installation
 
@@ -101,6 +104,42 @@ interface TransactionResult {
   message?: string;
   explorerUrl?: string;
 }
+```
+
+### Smart Contracts
+
+#### `wallet.callContract(data: ContractCallData): Promise<TransactionResult>`
+Execute a state-changing contract call. The extension signs and submits via `octra_submit`.
+
+```typescript
+const result = await wallet.callContract({
+  contract: 'oct26Lia...',  // Contract address
+  method: 'swap',           // AML method name
+  params: [100, true, 90],  // Method arguments (flat, not array-wrapped)
+  amount: '0',              // Native OCT to send (optional, default '0')
+  ou: '10000',              // Operational units (optional, default '10000')
+});
+console.log('TX Hash:', result.txHash);
+```
+
+#### `wallet.contractCallView(data: ContractViewCallData): Promise<any>`
+Read-only contract query. No signing, no approval popup, no wallet unlock required.
+
+```typescript
+const price = await wallet.contractCallView({
+  contract: 'oct26Lia...',
+  method: 'get_active_price',
+  params: [],
+});
+console.log('Price:', price);
+```
+
+#### `wallet.getContractStorage(contract: string, key: string): Promise<string | null>`
+Read contract storage by key.
+
+```typescript
+const value = await wallet.getContractStorage('oct26Lia...', 'total_supply');
+console.log('Total supply:', value);
 ```
 
 ### Message Signing
@@ -211,7 +250,8 @@ interface NetworkInfo {
 
 ## Requirements
 
-- 0xio Wallet Extension v2.0.1 or higher
+- 0xio Wallet Extension v2.0.1 or higher (Mainnet Alpha)
+- 0xio Wallet Extension v2.2.1 or higher (Devnet — required for contract calls and privacy features)
 - Modern browser (Chrome, Firefox, Edge, Brave)
 
 ## Documentation

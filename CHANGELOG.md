@@ -2,6 +2,35 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.3.0] - 2026-03-10
+
+### Added
+- **Smart Contract Interaction**: New `callContract()` method for state-changing contract calls. The extension builds, signs, and submits via `octra_submit` — works on both mainnet and devnet.
+- **Contract View Calls**: New `contractCallView()` method for read-only contract queries. No wallet unlock or approval popup required.
+- **Contract Storage**: New `getContractStorage()` method to read contract storage by key directly from the chain.
+- **New Types**: `ContractCallData`, `ContractViewCallData`, and `ContractParams` for type-safe contract interaction.
+- **Devnet Version Constant**: New `MIN_EXTENSION_VERSION_DEVNET` export (`'2.2.1'`) for programmatic devnet compatibility checks.
+
+### Improved
+- **Type Safety**: Replaced `any` with `ContractParams` (`ReadonlyArray<string | number | boolean>`) in `ContractCallData.params` and `ContractViewCallData.params`.
+- **Event Handler Typing**: Three internal event handlers (`handleAccountChanged`, `handleNetworkChanged`, `handleBalanceChanged`) now use properly typed parameters instead of `any`.
+- **Error Consistency**: `getNetworkConfig()` now throws `ZeroXIOWalletError` with `ErrorCode.NETWORK_ERROR` instead of a generic `Error`.
+- **UMD Global Name**: Fixed UMD build global from `OctraWalletSDK` to `ZeroXIOWalletSDK` to match SDK branding.
+
+### Security
+- **Fixed wildcard origin**: `simulateExtensionEvent` now uses `window.location.origin` instead of `'*'` wildcard, preventing cross-origin message injection.
+- **signMessage length limit**: Added 10,000 character max to prevent memory exhaustion from oversized signing requests.
+- **Narrowed dev detection**: Removed overly broad `hostname.includes('dev')` check that would enable debug mode on any domain containing "dev" (e.g., `developer.mozilla.org`). Dev mode now only activates on `localhost`, `127.0.0.1`, or when `NODE_ENV=development`.
+
+### Fixed
+- **Message validation**: Increased `isValidMessage()` limit from 280 to 100,000 characters. The 280-char limit was blocking contract call parameters which are serialized JSON and can be large.
+
+### Compatibility
+- **Mainnet Alpha**: Requires 0xio Wallet Extension v2.0.1 or higher
+- **Devnet**: Requires 0xio Wallet Extension v2.2.1 or higher (contract calls, privacy features)
+
+---
+
 ## [2.2.0] - 2026-03-08
 
 ### Added

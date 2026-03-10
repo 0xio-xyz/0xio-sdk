@@ -56,8 +56,8 @@ export function isValidMessage(message: string): boolean {
     return false;
   }
 
-  // Check length (adjust based on network limits)
-  return message.length <= 280;
+  // 100KB limit — contract call params can be large (serialized JSON)
+  return message.length <= 100_000;
 }
 
 /**
@@ -346,44 +346,48 @@ export function createLogger(prefix: string, debug: boolean) {
     process.env.NODE_ENV === 'development' ||
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1' ||
-    window.location.hostname.includes('dev') ||
     (window as any).__OCTRA_SDK_DEBUG__
   );
 
   // Only enable logging in development mode AND when debug is explicitly enabled
   const shouldLog = debug && isDevelopment;
 
+  const ts = () => {
+    const d = new Date();
+    return `${d.toTimeString().slice(0, 8)}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+  };
+
   return {
     log: (...args: any[]) => {
       if (shouldLog) {
-        console.log(`[${prefix}]`, ...args);
+        console.log(`[${ts()}][${prefix}]`, ...args);
       }
     },
     warn: (...args: any[]) => {
       if (shouldLog) {
-        console.warn(`[${prefix}]`, ...args);
+        console.warn(`[${ts()}][${prefix}]`, ...args);
       }
     },
     error: (...args: any[]) => {
       // Always show errors in development, even without debug flag
       if (isDevelopment) {
-        console.error(`[${prefix}]`, ...args);
+        console.error(`[${ts()}][${prefix}]`, ...args);
       }
     },
     debug: (...args: any[]) => {
       if (shouldLog) {
-        console.debug(`[${prefix}]`, ...args);
+        console.debug(`[${ts()}][${prefix}]`, ...args);
       }
     },
     table: (data: any) => {
       if (shouldLog) {
-        console.log(`[${prefix}] Table data:`);
+        console.log(`[${ts()}][${prefix}] Table data:`);
         console.table(data);
       }
     },
     group: (label: string) => {
       if (shouldLog) {
-        console.group(`[${prefix}] ${label}`);
+        console.group(`[${ts()}][${prefix}] ${label}`);
       }
     },
     groupEnd: () => {

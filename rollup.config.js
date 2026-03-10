@@ -47,7 +47,7 @@ export default [
     output: {
       file: 'dist/index.umd.js',
       format: 'umd',
-      name: 'OctraWalletSDK',
+      name: 'ZeroXIOWalletSDK',
       sourcemap: true,
       globals: {}
     },

@@ -2,7 +2,7 @@
  * Network configuration for 0xio SDK
  */
 
-import { NetworkInfo } from '../types';
+import { NetworkInfo, ErrorCode, ZeroXIOWalletError } from '../types';
 
 export const NETWORKS: Record<string, NetworkInfo> = {
   'mainnet': {
@@ -48,7 +48,7 @@ export const DEFAULT_NETWORK_ID = 'mainnet';
 export function getNetworkConfig(networkId: string = DEFAULT_NETWORK_ID): NetworkInfo {
   const network = NETWORKS[networkId];
   if (!network) {
-    throw new Error(`Unknown network ID: ${networkId}`);
+    throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, `Unknown network ID: ${networkId}`);
   }
   return network;
 }
