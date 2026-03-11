@@ -326,12 +326,12 @@ export function generateMockData() {
     },
     networkInfo: {
       id: 'mainnet',
-      name: 'Octra Mainnet Alpha',
-      rpcUrl: 'https://octra.network',
-      explorerUrl: 'https://octrascan.io/transactions/',
-      explorerAddressUrl: 'https://octrascan.io/addresses/',
-      indexerUrl: 'https://network.octrascan.com',
-      supportsPrivacy: false,
+      name: 'Octra Mainnet',
+      rpcUrl: 'http://46.101.86.250:8080',
+      explorerUrl: 'https://lite.octrascan.io/tx.html?hash=',
+      explorerAddressUrl: 'https://lite.octrascan.io/address.html?addr=',
+      indexerUrl: 'https://lite.octrascan.io',
+      supportsPrivacy: true,
       color: '#f59e0b',
       isTestnet: false
     }

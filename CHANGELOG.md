@@ -47,7 +47,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 | Network | RPC | Explorer | Privacy | Testnet |
 |---------|-----|----------|---------|---------|
-| Mainnet Alpha | `https://octra.network` | `https://octrascan.io` | No | No |
+| Mainnet | `http://46.101.86.250:8080` | `https://lite.octrascan.io` | Yes | No |
 | Devnet | `http://165.227.225.79:8080` | `https://devnet.octrascan.io` | Yes | Yes |
 | Custom | User-defined | User-defined | No | No |
 

@@ -873,8 +873,8 @@ console.log(devnet.supportsPrivacy);  // true (FHE enabled)
 console.log(devnet.isTestnet);        // true
 
 const mainnet = getNetworkConfig('mainnet');
-console.log(mainnet.rpcUrl);          // https://octra.network
-console.log(mainnet.supportsPrivacy); // false
+console.log(mainnet.rpcUrl);          // http://46.101.86.250:8080
+console.log(mainnet.supportsPrivacy); // true
 
 // List all available networks
 const all = getAllNetworks();
@@ -883,7 +883,7 @@ all.forEach(n => console.log(n.id, n.name));
 
 | Network | RPC | Privacy (FHE) | Testnet |
 |---------|-----|:---:|:---:|
-| Mainnet Alpha | `https://octra.network` | No | No |
+| Mainnet | `http://46.101.86.250:8080` | Yes | No |
 | Devnet | `http://165.227.225.79:8080` | Yes | Yes |
 | Custom | User-defined | No | No |
 

@@ -223,8 +223,8 @@ console.log(devnet.isTestnet);        // true
 
 // Get mainnet config
 const mainnet = getNetworkConfig('mainnet');
-console.log(mainnet.rpcUrl);          // https://octra.network
-console.log(mainnet.supportsPrivacy); // false
+console.log(mainnet.rpcUrl);          // http://46.101.86.250:8080
+console.log(mainnet.supportsPrivacy); // true
 ```
 
 | Network | Privacy (FHE) | Explorer |
