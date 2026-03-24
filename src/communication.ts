@@ -258,14 +258,15 @@ export class ExtensionCommunicator extends EventEmitter {
     const allowedOrigin = window.location.origin;
 
     window.addEventListener('message', (event) => {
-      // ✅ SECURITY: Validate origin first - critical security check
-      if (event.origin !== allowedOrigin) {
-        this.logger.warn('Blocked message from untrusted origin:', event.origin);
+      // Accept messages from same origin OR from parent frame (desktop/mobile bridge)
+      const isFromSameOrigin = event.origin === allowedOrigin;
+      const isFromParent = event.source === window.parent && window.parent !== window;
+      if (!isFromSameOrigin && !isFromParent) {
         return;
       }
 
-      // Only accept messages from same window
-      if (event.source !== window) {
+      // Accept from same window or parent frame
+      if (event.source !== window && event.source !== window.parent) {
         return;
       }
 
@@ -352,12 +353,13 @@ export class ExtensionCommunicator extends EventEmitter {
    * Post message to extension via content script
    */
   private postMessageToExtension(request: ExtensionRequest): void {
-    // ✅ SECURITY: Use specific origin instead of wildcard
-    const targetOrigin = window.location.origin;
-    window.postMessage({
-      source: '0xio-sdk-request',
-      request
-    }, targetOrigin);
+    const msg = { source: '0xio-sdk-request', request };
+    // Post to same window (extension content script picks it up)
+    window.postMessage(msg, window.location.origin);
+    // Also post to parent frame if in an iframe (desktop/mobile bridge picks it up)
+    if (window.parent !== window) {
+      window.parent.postMessage(msg, '*');
+    }
   }
 
   /**
@@ -472,6 +474,20 @@ export class ExtensionCommunicator extends EventEmitter {
       this.logger.log('Received octraWalletReady event');
       this.isExtensionAvailableState = true;
     });
+
+    // Listen for desktop/mobile bridge walletReady via postMessage
+    window.addEventListener('message', (event) => {
+      if (event.data?.source === '0xio-sdk-bridge' && event.data?.event?.type === 'walletReady') {
+        this.logger.log('Received walletReady via postMessage (desktop/mobile bridge)');
+        this.isExtensionAvailableState = true;
+      }
+    });
+
+    // Also detect if running inside a frame with a wallet bridge parent
+    if (window.parent !== window) {
+      this.logger.log('Running inside a frame — checking for parent wallet bridge');
+      this.isExtensionAvailableState = true;
+    }
 
     // Initial check (in case extension was already injected)
     this.checkExtensionAvailability();
