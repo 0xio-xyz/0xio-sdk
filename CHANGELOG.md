@@ -2,6 +2,28 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.4.0] - 2026-03-24
+
+### Added
+- **Desktop/Mobile DApp Bridge**: SDK now supports running inside iframes (desktop browser) and WebViews (mobile browser). Requests are relayed to the parent frame automatically.
+- **Parent Frame Detection**: `postMessageToExtension()` now posts to both `window` (extension content script) and `window.parent` (iframe bridge) when running inside a frame.
+- **Frame-Aware Message Listener**: `setupMessageListener()` now accepts messages from `window.parent` in addition to same-window, enabling desktop/mobile wallet bridges to communicate with DApps.
+- **walletReady via postMessage**: `startExtensionDetection()` now detects `walletReady` events sent via `postMessage` from parent frames, in addition to DOM events and global signals.
+- **Auto Frame Detection**: When `window.parent !== window`, the SDK assumes a wallet bridge is available and marks the wallet as detected.
+
+### Security
+- Parent frame messages are only accepted from `window.parent`, not arbitrary origins
+- Extension content script messages continue to use strict origin validation
+
+### Compatibility
+- Fully backward compatible — extension-based DApps work unchanged
+- Desktop (0xio Desktop): DApps loaded in BrowserScreen iframe now auto-connect
+- Mobile (0xio App): DApps loaded in WebView browser now auto-connect via existing bridge
+- Mainnet Alpha: Extension v2.0.1+
+- Devnet: Extension v2.2.1+
+
+---
+
 ## [2.3.0] - 2026-03-10
 
 ### Added

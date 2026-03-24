@@ -22,7 +22,7 @@ The 0xio SDK provides a comprehensive toolkit for building decentralized applica
 
 ### What's Included
 
-- **Wallet Connection** - Seamless integration with 0xio Wallet browser extension
+- **Wallet Connection** - Seamless integration with 0xio Wallet Extension, Desktop, and Mobile
 - **Transaction Management** - Send public and private transactions
 - **Smart Contract Interaction** - Call contracts (state-changing and view), read storage
 - **Message Signing** - Sign arbitrary messages for authentication and attestation
@@ -39,10 +39,25 @@ DApp (Your Application)
     ↓
 0xio SDK (@0xio/sdk)
     ↓
-0xio Wallet Extension
+┌─────────────────────────────────────────────┐
+│  Transport (auto-detected)                  │
+│  ├─ Extension: postMessage to content script│
+│  ├─ Desktop:   postMessage to window.parent │
+│  └─ Mobile:    postMessage to WebView bridge│
+└─────────────────────────────────────────────┘
     ↓
 Octra Network
 ```
+
+### Supported Platforms
+
+| Platform | Transport | How It Works |
+|----------|-----------|--------------|
+| **0xio Wallet Extension** | `window.postMessage` | Content script relays messages between DApp and extension background |
+| **0xio Desktop** | `window.parent.postMessage` (iframe) | DApp loaded in BrowserScreen iframe; desktop wallet bridges messages |
+| **0xio App** | `window.parent.postMessage` (WebView) | DApp loaded in built-in browser WebView; mobile wallet bridges messages |
+
+The SDK auto-detects the environment. When `window.parent !== window`, it assumes a wallet bridge (desktop or mobile) is available. No code changes are needed for DApp developers.
 
 ## Installation
 
@@ -61,7 +76,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@2.3.0/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.4.0/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({

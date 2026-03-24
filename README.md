@@ -1,18 +1,16 @@
 # 0xio Wallet SDK
 
-**Version:** 2.3.0
+**Version:** 2.4.0
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.3.0
+## What's New in v2.4.0
 
-- **Smart Contract Calls**: New `callContract()` for state-changing contract interaction (signed, with approval popup)
-- **Contract View Calls**: New `contractCallView()` for read-only queries (no signing, no popup)
-- **Contract Storage**: New `getContractStorage()` to read on-chain contract storage by key
-- **Type Safety**: New `ContractParams` type (`ReadonlyArray<string | number | boolean>`) replaces `any` in contract interfaces; typed event handlers
-- **Error Consistency**: `getNetworkConfig()` now throws `ZeroXIOWalletError` instead of generic `Error`
-- **Security Fixes**: Fixed wildcard origin in dev utils, added signMessage length limit, narrowed dev detection
-- **Message Limit**: Raised `isValidMessage()` from 280 to 100K chars to support contract call parameters
+- **Desktop/Mobile DApp Bridge**: SDK now supports running inside iframes (0xio Desktop) and WebViews (0xio App). Requests are relayed to the parent frame automatically.
+- **Auto Frame Detection**: When `window.parent !== window`, the SDK assumes a wallet bridge is available and marks the wallet as detected.
+- **Frame-Aware Messaging**: `postMessageToExtension()` posts to both `window` and `window.parent` when running inside a frame; `setupMessageListener()` accepts messages from `window.parent`.
+- **walletReady via postMessage**: Extension detection now recognizes `walletReady` events from parent frames.
+- **Fully backward compatible** — extension-based DApps work unchanged with no code changes needed.
 
 ## Installation
 
@@ -248,10 +246,22 @@ interface NetworkInfo {
 }
 ```
 
+## Desktop & Mobile Support
+
+The SDK automatically detects when your DApp is running inside:
+
+- **0xio Desktop's built-in browser** — Your DApp is loaded in an iframe. The SDK detects `window.parent !== window` and relays all requests to the desktop wallet via the iframe bridge.
+- **0xio App's built-in browser** — Your DApp is loaded in a WebView. The SDK communicates with the mobile wallet via the existing WebView bridge.
+- **0xio Wallet Extension** — Standard browser extension communication (unchanged).
+
+No code changes are needed for DApp developers. Just use the SDK as normal and it will auto-detect the environment and choose the correct transport.
+
 ## Requirements
 
 - 0xio Wallet Extension v2.0.1 or higher (Mainnet Alpha)
 - 0xio Wallet Extension v2.2.1 or higher (Devnet — required for contract calls and privacy features)
+- 0xio Desktop v1.0+ (for iframe bridge support)
+- 0xio App v1.0+ (for WebView bridge support)
 - Modern browser (Chrome, Firefox, Edge, Brave)
 
 ## Documentation
