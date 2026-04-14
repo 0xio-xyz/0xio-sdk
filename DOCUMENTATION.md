@@ -76,7 +76,7 @@ yarn add @0xio/sdk
 ### CDN (UMD)
 
 ```html
-<script src="https://unpkg.com/@0xio/sdk@2.4.0/dist/index.umd.js"></script>
+<script src="https://unpkg.com/@0xio/sdk@2.4.1/dist/index.umd.js"></script>
 <script>
   // SDK available as global: ZeroXIOWalletSDK
   const wallet = new ZeroXIOWalletSDK.ZeroXIOWallet({
@@ -181,15 +181,15 @@ Instead of polling, listen for real-time events:
 
 ```typescript
 wallet.on('balanceChanged', (event) => {
-  console.log('New balance:', event.newBalance.total);
+  console.log('New balance:', event.data.newBalance.total);
 });
 
 wallet.on('accountChanged', (event) => {
-  console.log('User switched to:', event.newAddress);
+  console.log('User switched to:', event.data.newAddress);
 });
 
 wallet.on('networkChanged', (event) => {
-  console.log('Network changed to:', event.newNetwork.name);
+  console.log('Network changed to:', event.data.newNetwork.name);
 });
 ```
 
@@ -293,9 +293,7 @@ if (initialized) {
 Connect to user's wallet. Shows connection dialog if not previously connected.
 
 ```typescript
-const connection = await wallet.connect({
-  requestPrivateAccess: true  // Request private balance permissions
-});
+const connection = await wallet.connect();
 
 console.log('Address:', connection.address);
 console.log('Balance:', connection.balance.total);
@@ -350,7 +348,6 @@ Get current connection details.
 const info = wallet.getConnectionInfo();
 console.log('Connected to:', info.address);
 console.log('Since:', new Date(info.connectedAt));
-console.log('Permissions:', info.permissions);
 ```
 
 **Returns:**
@@ -486,11 +483,12 @@ Get transaction history.
 const history = await wallet.getTransactionHistory(1, 20);
 
 history.transactions.forEach(tx => {
-  console.log(`${tx.type}: ${tx.amount} OCT to ${tx.to}`);
+  console.log(`${tx.amount} OCT to ${tx.to}`);
 });
 
-console.log('Total:', history.total);
-console.log('Page:', history.page, 'of', history.totalPages);
+console.log('Total:', history.totalCount);
+console.log('Page:', history.page);
+console.log('Has more:', history.hasMore);
 ```
 
 **Returns:**
@@ -498,10 +496,9 @@ console.log('Page:', history.page, 'of', history.totalPages);
 ```typescript
 interface TransactionHistory {
   transactions: Transaction[];
-  total: number;
+  totalCount: number;
   page: number;
-  limit: number;
-  totalPages: number;
+  hasMore: boolean;
 }
 ```
 
@@ -749,11 +746,11 @@ Register event listener.
 
 ```typescript
 wallet.on('connect', (event) => {
-  console.log('Connected:', event.address);
+  console.log('Connected:', event.data.address);
 });
 
 wallet.on('balanceChanged', (event) => {
-  console.log('Balance changed:', event.newBalance.total);
+  console.log('Balance changed:', event.data.newBalance.total);
 });
 ```
 
@@ -787,7 +784,7 @@ Register one-time event listener.
 
 ```typescript
 wallet.once('connect', (event) => {
-  console.log('Connected once:', event.address);
+  console.log('Connected once:', event.data.address);
 });
 ```
 
@@ -844,11 +841,11 @@ if (isValidAddress('oct1...')) {
 }
 
 // Formatting
-const formatted = formatZeroXIO(123.456789, 2); // "123.46 OCT"
+const formatted = formatZeroXIO(123.456789, 2); // "123.46"
 const shortAddr = formatAddress('oct1abc...xyz', 6, 4); // "oct1ab...xyz"
 
 // Conversion
-const micro = toMicroZeroXIO(1.5); // 1500000
+const micro = toMicroZeroXIO(1.5); // "1500000"
 const oct = fromMicroZeroXIO(1500000); // 1.5
 
 // Error handling
@@ -861,7 +858,7 @@ await delay(1000); // Wait 1 second
 
 const result = await retry(
   () => wallet.getBalance(),
-  { maxAttempts: 3, delay: 1000 }
+  3, 1000
 );
 
 const data = await withTimeout(
@@ -979,11 +976,6 @@ if (process.env.NODE_ENV === 'development') {
 
   // Get SDK info
   console.log(window.__ZEROXIO_SDK_UTILS__.getSDKInfo());
-
-  // Simulate events for testing
-  window.__ZEROXIO_SDK_UTILS__.simulateExtensionEvent('balanceChanged', {
-    newBalance: { public: 100, private: 50, total: 150 }
-  });
 }
 ```
 
@@ -1008,8 +1000,8 @@ export function useWallet() {
       // Setup listeners
       wallet.on('connect', (event) => {
         setConnected(true);
-        setAddress(event.address);
-        setBalance(event.balance);
+        setAddress(event.data.address);
+        setBalance(event.data.balance);
       });
 
       wallet.on('disconnect', () => {
@@ -1019,7 +1011,7 @@ export function useWallet() {
       });
 
       wallet.on('balanceChanged', (event) => {
-        setBalance(event.newBalance);
+        setBalance(event.data.newBalance);
       });
     });
   }, [wallet]);
@@ -1093,8 +1085,8 @@ onMounted(async () => {
 
   wallet.on('connect', (event) => {
     connected.value = true;
-    address.value = event.address;
-    balance.value = event.balance;
+    address.value = event.data.address;
+    balance.value = event.data.balance;
   });
 
   wallet.on('disconnect', () => {
@@ -1104,7 +1096,7 @@ onMounted(async () => {
   });
 
   wallet.on('balanceChanged', (event) => {
-    balance.value = event.newBalance;
+    balance.value = event.data.newBalance;
   });
 });
 
@@ -1135,8 +1127,8 @@ const disconnect = async () => {
 
     wallet.on('connect', (event) => {
       connected = true;
-      address = event.address;
-      balance = event.balance;
+      address = event.data.address;
+      balance = event.data.balance;
     });
 
     wallet.on('disconnect', () => {
@@ -1146,7 +1138,7 @@ const disconnect = async () => {
     });
 
     wallet.on('balanceChanged', (event) => {
-      balance = event.newBalance;
+      balance = event.data.newBalance;
     });
   });
 
@@ -1270,10 +1262,10 @@ try {
 
 ```typescript
 wallet.on('error', (errorEvent) => {
-  console.error('Wallet error:', errorEvent.error);
+  console.error('Wallet error:', errorEvent.data.error);
 
   // Show user-friendly message
-  if (errorEvent.error.code === ErrorCode.NETWORK_ERROR) {
+  if (errorEvent.data.error.code === ErrorCode.NETWORK_ERROR) {
     showNotification('Network connection lost. Retrying...');
   }
 });
@@ -1366,7 +1358,7 @@ try {
     30000 // 30 second timeout
   );
 } catch (error) {
-  if (isErrorType(error, ErrorCode.TIMEOUT)) {
+  if (isErrorType(error, ErrorCode.NETWORK_ERROR)) {
     console.error('Transaction timed out');
   }
 }
@@ -1415,7 +1407,7 @@ export { wallet };
 // ✅ Good: Remove listeners when component unmounts
 useEffect(() => {
   const handleBalance = (event) => {
-    setBalance(event.newBalance);
+    setBalance(event.data.newBalance);
   };
 
   wallet.on('balanceChanged', handleBalance);
@@ -1493,18 +1485,6 @@ try {
 }
 ```
 
-### Connection Timeout
-
-**Problem:** Connection takes too long
-
-**Solution:** Increase timeout
-
-```typescript
-await wallet.connect({
-  timeout: 60000 // 60 seconds
-});
-```
-
 ### Events Not Firing
 
 **Problem:** Event listeners not receiving events
@@ -1531,7 +1511,7 @@ await wallet.connect();
 ```typescript
 // Listen for updates
 wallet.on('balanceChanged', (event) => {
-  updateUI(event.newBalance);
+  updateUI(event.data.newBalance);
 });
 
 // Or force refresh
@@ -1546,7 +1526,7 @@ const balance = await wallet.getBalance(true);
 
 ```typescript
 wallet.on('error', (event) => {
-  console.error('Wallet error:', event.error);
+  console.error('Wallet error:', event.data.error);
 });
 
 try {

@@ -2,6 +2,38 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.4.1] - 2026-04-14
+
+### Security
+- **[CRITICAL] postMessage origin validation**: Parent-frame messages now validated against a strict trusted origins set instead of accepting all origins. Prevents malicious pages from intercepting wallet requests via iframe embedding.
+- **[CRITICAL] Removed auto-trust for iframes**: SDK no longer assumes any iframe parent is a wallet bridge. Must receive a `walletReady` signal from a trusted origin first.
+- **[CRITICAL] Response binding**: Only responses with matching pending request IDs are processed. Forged responses from injected scripts are rejected.
+- **[HIGH] Removed `simulateExtensionEvent`**: Dev utility that could be exploited on staging builds to inject fake wallet events has been removed.
+- **[HIGH] No wildcard postMessage**: `postMessageToExtension` now uses specific trusted origins (`tauri://localhost`, etc.) instead of `'*'` for parent-frame communication.
+
+### Fixed
+- **No retry on user rejection**: `retry()` detects rejection/denied/cancelled errors and throws immediately. Prevents double confirmation popups.
+- **`withTimeout` timer leak**: Timer is now cleared via `.finally()` when the promise resolves, preventing 30s memory retention per request.
+- **`retry` off-by-one**: `maxRetries=1` now correctly means 1 initial + 1 retry = 2 total (was 3).
+- **Message listener cleanup**: `cleanup()` now removes the `window.addEventListener('message')` listener, preventing accumulation on re-instantiation.
+- **Type compatibility**: Replaced `NodeJS.Timeout` with `ReturnType<typeof setTimeout>` for browser-only environments.
+- **`process.env` guard**: `createLogger` now uses optional chaining for `process.env.NODE_ENV`, preventing ReferenceError when imported in browser without bundler.
+- **Duplicate `isValidNetworkId`**: Removed duplicate export from `utils.ts`, canonical version in `config/networks.ts`.
+
+### Added
+- **`setTrustedOrigins(origins)`**: New method to configure allowed parent-frame origins for iframe/bridge communication.
+
+### Documentation
+- Fixed all event listener examples to use `event.data.xxx` (WalletEvent wrapper)
+- Fixed `TransactionHistory` type (`totalCount`/`hasMore` instead of `total`/`limit`/`totalPages`)
+- Fixed `retry()` docs (positional args, not options object)
+- Fixed `formatZeroXIO` return value (no " OCT" suffix)
+- Fixed `toMicroZeroXIO` return type (string, not number)
+- Removed nonexistent `ConnectOptions.timeout`, `.requestPrivateAccess`
+- Removed nonexistent `ConnectionInfo.permissions`
+- Changed `ErrorCode.TIMEOUT` to `ErrorCode.NETWORK_ERROR`
+- Updated mainnet privacy support to "Yes"
+
 ## [2.4.0] - 2026-03-24
 
 ### Added

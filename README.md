@@ -1,10 +1,15 @@
 # 0xio Wallet SDK
 
-**Version:** 2.4.0
+**Version:** 2.4.1
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.4.0
+## What's New in v2.4.1
+
+- **No retry on user rejection**: Transactions, contract calls, and sign requests rejected by the user no longer trigger automatic retry. Prevents double confirmation popups.
+- **Type fixes**: Replaced `NodeJS.Timeout` with `ReturnType<typeof setTimeout>` for browser compatibility.
+
+## v2.4.0
 
 - **Desktop/Mobile DApp Bridge**: SDK now supports running inside iframes (0xio Desktop) and WebViews (0xio App). Requests are relayed to the parent frame automatically.
 - **Auto Frame Detection**: When `window.parent !== window`, the SDK assumes a wallet bridge is available and marks the wallet as detected.
@@ -163,11 +168,11 @@ console.log('Signature:', signature);
 ### Events
 
 ```typescript
-wallet.on('connect', (event) => console.log('Connected:', event.address));
+wallet.on('connect', (event) => console.log('Connected:', event.data.address));
 wallet.on('disconnect', (event) => console.log('Disconnected'));
-wallet.on('balanceChanged', (event) => console.log('New balance:', event.newBalance.total));
-wallet.on('accountChanged', (event) => console.log('Account changed:', event.newAddress));
-wallet.on('networkChanged', (event) => console.log('Network:', event.newNetwork.name));
+wallet.on('balanceChanged', (event) => console.log('New balance:', event.data.newBalance.total));
+wallet.on('accountChanged', (event) => console.log('Account changed:', event.data.newAddress));
+wallet.on('networkChanged', (event) => console.log('Network:', event.data.newNetwork.name));
 ```
 
 ## Error Handling
@@ -227,7 +232,7 @@ console.log(mainnet.supportsPrivacy); // true
 
 | Network | Privacy (FHE) | Explorer |
 |---------|:---:|---|
-| Mainnet Alpha | No | [octrascan.io](https://octrascan.io) |
+| Mainnet Alpha | Yes | [octrascan.io](https://octrascan.io) |
 | Devnet | Yes | [devnet.octrascan.io](https://devnet.octrascan.io) |
 
 ### NetworkInfo Type

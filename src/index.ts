@@ -84,7 +84,8 @@ export {
   getNetworkConfig,
   getAllNetworks,
   getDefaultNetwork,
-  createDefaultBalance
+  createDefaultBalance,
+  isValidNetworkId
 } from './config';
 
 // Utility exports
@@ -94,7 +95,6 @@ export {
   isValidAmount,
   isValidMessage,
   isValidFeeLevel,
-  isValidNetworkId,
 
   // Formatting utilities
   formatOCT,
@@ -128,7 +128,7 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.3.0';
+export const SDK_VERSION = '2.4.1';
 export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
 export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
@@ -205,7 +205,7 @@ if (typeof window !== 'undefined') {
   (window as any).__ZEROXIO_SDK_VERSION__ = SDK_VERSION;
 
   // Development mode detection
-  const isDevelopment = process.env.NODE_ENV === 'development' ||
+  const isDevelopment = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.NODE_ENV === 'development') ||
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1';
 
@@ -233,13 +233,7 @@ if (typeof window !== 'undefined') {
         debugMode: !!(window as any).__ZEROXIO_SDK_DEBUG__,
         environment: isDevelopment ? 'development' : 'production'
       }),
-      simulateExtensionEvent: (eventType: string, data: any) => {
-        window.postMessage({
-          source: '0xio-sdk-bridge',
-          event: { type: eventType, data }
-        }, window.location.origin);
-        console.log('[0xio SDK] Simulated extension event:', eventType, data);
-      },
+      // simulateExtensionEvent removed for security — could be exploited on staging builds
       showWelcome: () => {
         console.log(`[0xio SDK] Development mode - SDK v${SDK_VERSION}`);
         console.log('[0xio SDK] Debug utilities available at window.__ZEROXIO_SDK_UTILS__');

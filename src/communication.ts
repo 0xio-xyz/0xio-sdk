@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 2.2.0
+ * @version 2.4.1
  * @license MIT
  */
 
@@ -50,7 +50,7 @@ export class ExtensionCommunicator extends EventEmitter {
   private pendingRequests = new Map<string, {
     resolve: (value: any) => void;
     reject: (error: Error) => void;
-    timeout: NodeJS.Timeout;
+    timeout: ReturnType<typeof setTimeout>;
     retryCount: number;
   }>();
 
@@ -61,10 +61,16 @@ export class ExtensionCommunicator extends EventEmitter {
   private logger: ReturnType<typeof createLogger>;
 
   /** Interval handle for periodic extension detection */
-  private extensionDetectionInterval: NodeJS.Timeout | null = null;
+  private extensionDetectionInterval: ReturnType<typeof setInterval> | null = null;
 
   /** Current extension availability state */
   private isExtensionAvailableState = false;
+
+  /** Message listener reference for cleanup */
+  private messageListener: ((event: MessageEvent) => void) | null = null;
+
+  /** Trusted parent origins for iframe communication */
+  private trustedOrigins: string[] = [];
 
   // Rate limiting configuration
   /** Maximum number of concurrent pending requests */
@@ -84,11 +90,20 @@ export class ExtensionCommunicator extends EventEmitter {
    *
    * @param {boolean} debug - Enable debug logging
    */
-  constructor(debug = false) {
+  constructor(debug = false, trustedOrigins: string[] = []) {
     super(debug);
     this.logger = createLogger('ExtensionCommunicator', debug);
+    this.trustedOrigins = trustedOrigins;
     this.setupMessageListener();
     this.startExtensionDetection();
+  }
+
+  /**
+   * Add trusted origins for iframe/bridge communication
+   * Call this before connecting if your dApp runs inside a trusted frame
+   */
+  setTrustedOrigins(origins: string[]): void {
+    this.trustedOrigins = origins;
   }
 
   /**
@@ -257,36 +272,57 @@ export class ExtensionCommunicator extends EventEmitter {
 
     const allowedOrigin = window.location.origin;
 
-    window.addEventListener('message', (event) => {
-      // Accept messages from same origin OR from parent frame (desktop/mobile bridge)
+    // Store allowed origins for parent frame communication
+    // Desktop (Tauri): tauri://localhost or https://tauri.localhost
+    // Mobile (Expo): about:blank or custom scheme
+    const trustedParentOrigins = new Set([
+      allowedOrigin,
+      'tauri://localhost',
+      'https://tauri.localhost',
+      'http://localhost',
+      'https://localhost',
+    ]);
+
+    // Allow dApps to register additional trusted origins
+    if (this.trustedOrigins) {
+      for (const origin of this.trustedOrigins) {
+        trustedParentOrigins.add(origin);
+      }
+    }
+
+    this.messageListener = (event: MessageEvent) => {
+      // Strict origin validation
       const isFromSameOrigin = event.origin === allowedOrigin;
-      const isFromParent = event.source === window.parent && window.parent !== window;
-      if (!isFromSameOrigin && !isFromParent) {
+      const isFromTrustedParent = event.source === window.parent
+        && window.parent !== window
+        && trustedParentOrigins.has(event.origin);
+
+      if (!isFromSameOrigin && !isFromTrustedParent) {
         return;
       }
 
-      // Accept from same window or parent frame
+      // Only accept from same window (extension content script) or trusted parent frame
       if (event.source !== window && event.source !== window.parent) {
         return;
       }
 
-      // Check if it's a 0xio SDK response
+      // Verify message structure
       if (!event.data || event.data.source !== '0xio-sdk-bridge') {
         return;
       }
 
-      // Handle different types of messages
+      // Validate response has a pending request (prevents forged responses)
       if (event.data.response) {
-        // Regular request/response
         const response = event.data.response as ExtensionResponse;
-        if (response && response.id) {
+        if (response && response.id && this.pendingRequests.has(response.id)) {
           this.handleExtensionResponse(response);
         }
       } else if (event.data.event) {
-        // Event notification from extension
         this.handleExtensionEvent(event.data.event);
       }
-    });
+    };
+
+    window.addEventListener('message', this.messageListener);
 
     this.logger.log('Message listener setup complete');
   }
@@ -356,9 +392,26 @@ export class ExtensionCommunicator extends EventEmitter {
     const msg = { source: '0xio-sdk-request', request };
     // Post to same window (extension content script picks it up)
     window.postMessage(msg, window.location.origin);
-    // Also post to parent frame if in an iframe (desktop/mobile bridge picks it up)
+    // Also post to parent frame if in an iframe (desktop/mobile bridge)
+    // Use specific origin instead of wildcard to prevent interception
     if (window.parent !== window) {
-      window.parent.postMessage(msg, '*');
+      try {
+        // Try same-origin first (works for Tauri, same-domain iframes)
+        window.parent.postMessage(msg, window.location.origin);
+      } catch {
+        // Cross-origin parent (e.g. tauri://localhost) — use known trusted origins only
+        const trustedOrigins = ['tauri://localhost', 'https://tauri.localhost'];
+        if (this.trustedOrigins) {
+          trustedOrigins.push(...this.trustedOrigins);
+        }
+        for (const origin of trustedOrigins) {
+          try {
+            window.parent.postMessage(msg, origin);
+          } catch {
+            // Origin not matching, skip
+          }
+        }
+      }
     }
   }
 
@@ -475,18 +528,26 @@ export class ExtensionCommunicator extends EventEmitter {
       this.isExtensionAvailableState = true;
     });
 
-    // Listen for desktop/mobile bridge walletReady via postMessage
+    // Listen for desktop/mobile bridge walletReady via postMessage (with origin validation)
     window.addEventListener('message', (event) => {
       if (event.data?.source === '0xio-sdk-bridge' && event.data?.event?.type === 'walletReady') {
-        this.logger.log('Received walletReady via postMessage (desktop/mobile bridge)');
-        this.isExtensionAvailableState = true;
+        const isSameOrigin = event.origin === window.location.origin;
+        const isTrusted = this.trustedOrigins.includes(event.origin)
+          || event.origin === 'tauri://localhost'
+          || event.origin === 'https://tauri.localhost';
+        if (isSameOrigin || isTrusted) {
+          this.logger.log('Received walletReady via postMessage from trusted origin');
+          this.isExtensionAvailableState = true;
+        } else {
+          this.logger.warn(`Ignored walletReady from untrusted origin: ${event.origin}`);
+        }
       }
     });
 
-    // Also detect if running inside a frame with a wallet bridge parent
+    // If running inside a frame, do NOT auto-trust the parent.
+    // Wait for a walletReady message from a trusted origin instead.
     if (window.parent !== window) {
-      this.logger.log('Running inside a frame — checking for parent wallet bridge');
-      this.isExtensionAvailableState = true;
+      this.logger.log('Running inside a frame — waiting for trusted walletReady signal');
     }
 
     // Initial check (in case extension was already injected)
@@ -646,6 +707,12 @@ export class ExtensionCommunicator extends EventEmitter {
     this.pendingRequests.clear();
     this.isInitialized = false;
     this.isExtensionAvailableState = false;
+
+    // Remove message listener to prevent accumulation
+    if (this.messageListener) {
+      window.removeEventListener('message', this.messageListener);
+      this.messageListener = null;
+    }
 
     // Call parent cleanup
     this.removeAllListeners();

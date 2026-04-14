@@ -33,18 +33,6 @@ export function isValidAmount(amount: number): boolean {
 }
 
 /**
- * Validate network ID
- */
-export function isValidNetworkId(networkId: string): boolean {
-  if (!networkId || typeof networkId !== 'string') {
-    return false;
-  }
-
-  const validNetworks = ['mainnet', 'devnet', 'custom'];
-  return validNetworks.includes(networkId.toLowerCase());
-}
-
-/**
  * Validate transaction message
  */
 export function isValidMessage(message: string): boolean {
@@ -225,7 +213,9 @@ export async function retry<T>(
 ): Promise<T> {
   let lastError: Error;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  // maxRetries = number of retries AFTER the first attempt
+  // Total attempts = 1 (initial) + maxRetries
+  for (let attempt = 0; attempt < 1 + maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error) {
@@ -237,8 +227,8 @@ export async function retry<T>(
         throw lastError;
       }
 
-      if (attempt === maxRetries) {
-        break; // Last attempt failed
+      if (attempt >= maxRetries) {
+        break; // All retries exhausted
       }
 
       // Exponential backoff: 1s, 2s, 4s, etc.
@@ -258,8 +248,10 @@ export function withTimeout<T>(
   timeoutMs: number,
   timeoutMessage = 'Operation timed out'
 ): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+    timer = setTimeout(() => {
       reject(new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         timeoutMessage
@@ -267,7 +259,9 @@ export function withTimeout<T>(
     }, timeoutMs);
   });
 
-  return Promise.race([promise, timeoutPromise]);
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timer);
+  });
 }
 
 // ===================
@@ -349,7 +343,7 @@ export function generateMockData() {
  */
 export function createLogger(prefix: string, debug: boolean) {
   const isDevelopment = typeof window !== 'undefined' && (
-    process.env.NODE_ENV === 'development' ||
+    (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') ||
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1' ||
     (window as any).__OCTRA_SDK_DEBUG__
