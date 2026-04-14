@@ -231,6 +231,12 @@ export async function retry<T>(
     } catch (error) {
       lastError = error as Error;
 
+      // Never retry user rejections — these are intentional
+      const msg = lastError.message?.toLowerCase() || '';
+      if (msg.includes('rejected') || msg.includes('denied') || msg.includes('cancelled') || msg.includes('user refused')) {
+        throw lastError;
+      }
+
       if (attempt === maxRetries) {
         break; // Last attempt failed
       }
