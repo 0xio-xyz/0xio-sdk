@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 2.4.1
+ * @version 2.4.2
  * @license MIT
  */
 
@@ -71,6 +71,8 @@ export class ExtensionCommunicator extends EventEmitter {
 
   /** Trusted parent origins for iframe communication */
   private trustedOrigins: string[] = [];
+  /** Parent origin learned from walletReady signal */
+  private _parentOrigin: string | null = null;
 
   // Rate limiting configuration
   /** Maximum number of concurrent pending requests */
@@ -293,9 +295,10 @@ export class ExtensionCommunicator extends EventEmitter {
     this.messageListener = (event: MessageEvent) => {
       // Strict origin validation
       const isFromSameOrigin = event.origin === allowedOrigin;
+      const isLocalhost = event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:');
       const isFromTrustedParent = event.source === window.parent
         && window.parent !== window
-        && trustedParentOrigins.has(event.origin);
+        && (trustedParentOrigins.has(event.origin) || isLocalhost);
 
       if (!isFromSameOrigin && !isFromTrustedParent) {
         return;
@@ -393,24 +396,15 @@ export class ExtensionCommunicator extends EventEmitter {
     // Post to same window (extension content script picks it up)
     window.postMessage(msg, window.location.origin);
     // Also post to parent frame if in an iframe (desktop/mobile bridge)
-    // Use specific origin instead of wildcard to prevent interception
     if (window.parent !== window) {
+      // Use the parent origin we learned from the walletReady signal, or wildcard
+      // Response validation is done by request ID matching, not origin
+      const parentOrigin = this._parentOrigin || '*';
       try {
-        // Try same-origin first (works for Tauri, same-domain iframes)
-        window.parent.postMessage(msg, window.location.origin);
+        window.parent.postMessage(msg, parentOrigin);
       } catch {
-        // Cross-origin parent (e.g. tauri://localhost) — use known trusted origins only
-        const trustedOrigins = ['tauri://localhost', 'https://tauri.localhost'];
-        if (this.trustedOrigins) {
-          trustedOrigins.push(...this.trustedOrigins);
-        }
-        for (const origin of trustedOrigins) {
-          try {
-            window.parent.postMessage(msg, origin);
-          } catch {
-            // Origin not matching, skip
-          }
-        }
+        // Fallback to wildcard if specific origin fails
+        try { window.parent.postMessage(msg, '*'); } catch {}
       }
     }
   }
@@ -532,12 +526,18 @@ export class ExtensionCommunicator extends EventEmitter {
     window.addEventListener('message', (event) => {
       if (event.data?.source === '0xio-sdk-bridge' && event.data?.event?.type === 'walletReady') {
         const isSameOrigin = event.origin === window.location.origin;
-        const isTrusted = this.trustedOrigins.includes(event.origin)
-          || event.origin === 'tauri://localhost'
-          || event.origin === 'https://tauri.localhost';
+        const isLocalhost = event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:');
+        const isTauri = event.origin === 'tauri://localhost' || event.origin === 'https://tauri.localhost';
+        const isTrusted = this.trustedOrigins.includes(event.origin) || isTauri || isLocalhost;
         if (isSameOrigin || isTrusted) {
           this.logger.log('Received walletReady via postMessage from trusted origin');
           this.isExtensionAvailableState = true;
+          // Capture parent origin for cross-origin reply targeting
+          if (event.data.parentOrigin) {
+            this._parentOrigin = event.data.parentOrigin;
+          } else if (event.origin && event.origin !== 'null') {
+            this._parentOrigin = event.origin;
+          }
         } else {
           this.logger.warn(`Ignored walletReady from untrusted origin: ${event.origin}`);
         }

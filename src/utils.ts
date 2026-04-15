@@ -343,7 +343,7 @@ export function generateMockData() {
  */
 export function createLogger(prefix: string, debug: boolean) {
   const isDevelopment = typeof window !== 'undefined' && (
-    (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') ||
+    (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.NODE_ENV === 'development') ||
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1' ||
     (window as any).__OCTRA_SDK_DEBUG__

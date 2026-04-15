@@ -1,12 +1,19 @@
 # 0xio Wallet SDK
 
-**Version:** 2.4.1
+**Version:** 2.4.2
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.4.1
+## What's New in v2.4.2
+
+- **Cross-origin iframe bridge**: Localhost origins now accepted as trusted parents for dev/testing DApp browser scenarios.
+- **Parent origin capture**: `walletReady` signal carries `parentOrigin` for reliable cross-origin reply targeting.
+- **postMessage fix**: Replies to parent frame use captured origin instead of `window.location.origin` (which fails cross-port).
+
+## v2.4.1
 
 - **No retry on user rejection**: Transactions, contract calls, and sign requests rejected by the user no longer trigger automatic retry. Prevents double confirmation popups.
+- **Security hardening**: postMessage origin validation, removed iframe auto-trust, response ID binding.
 - **Type fixes**: Replaced `NodeJS.Timeout` with `ReturnType<typeof setTimeout>` for browser compatibility.
 
 ## v2.4.0

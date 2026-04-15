@@ -23,7 +23,7 @@ export function createDefaultBalance(total: number = 0): Balance {
  * SDK Configuration constants
  */
 export const SDK_CONFIG = {
-  version: '2.4.1',
+  version: '2.4.2',
   defaultNetworkId: DEFAULT_NETWORK_ID,
   communicationTimeout: 30000, // 30 seconds
   retryAttempts: 3,

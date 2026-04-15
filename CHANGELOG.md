@@ -2,6 +2,13 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.4.2] - 2026-04-15
+
+### Fixed
+- **Cross-origin iframe DApp bridge**: SDK now accepts localhost origins as trusted parents for dev/testing. Fixes "Unable to post message" errors when DApps run on different localhost ports inside the desktop browser.
+- **Parent origin capture**: `walletReady` signal now carries `parentOrigin` field. SDK stores it and uses it for cross-origin replies instead of failing silently.
+- **postMessage targeting**: When inside an iframe, SDK replies to the captured parent origin (or wildcard fallback) instead of `window.location.origin` which fails for cross-port scenarios.
+
 ## [2.4.1] - 2026-04-14
 
 ### Security
