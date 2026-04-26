@@ -2,6 +2,12 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.4.3] - 2026-04-24
+
+### Fixed
+- **Double popup on timeout**: State-changing methods (`send_transaction`, `call_contract`, `signMessage`, etc.) no longer retry on timeout. Previously, SDK would retry with a new request ID while the extension was still showing the first approval popup, causing two popups where the second tx fails due to stale nonce/state.
+- **Interactive timeout increased**: User-facing approval methods now use 120s timeout (was 30s). Users reviewing large transactions no longer get timeout errors.
+
 ## [2.4.2] - 2026-04-15
 
 ### Fixed

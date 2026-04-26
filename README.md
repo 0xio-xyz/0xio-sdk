@@ -1,10 +1,15 @@
 # 0xio Wallet SDK
 
-**Version:** 2.4.2
+**Version:** 2.4.3
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.4.2
+## What's New in v2.4.3
+
+- **Fix double popup on timeout**: Transaction/signing methods no longer retry, preventing duplicate approval popups.
+- **120s timeout for interactive methods**: Users have 2 minutes to review and approve transactions.
+
+## v2.4.2
 
 - **Cross-origin iframe bridge**: Localhost origins now accepted as trusted parents for dev/testing DApp browser scenarios.
 - **Parent origin capture**: `walletReady` signal carries `parentOrigin` for reliable cross-origin reply targeting.

@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 2.4.2
+ * @version 2.4.3
  * @license MIT
  */
 
@@ -167,6 +167,15 @@ export class ExtensionCommunicator extends EventEmitter {
     return this.isExtensionAvailableState && this.hasExtensionContext();
   }
 
+  // Methods that trigger user-facing popups — NEVER retry these
+  // Retrying sends a second request while the first popup is still open,
+  // causing double popups where the second tx fails (stale nonce/state)
+  private static readonly NO_RETRY_METHODS = new Set([
+    'connect', 'send_transaction', 'call_contract', 'signMessage',
+    'send_private_transfer', 'claim_private_transfer',
+    'encrypt_balance', 'decrypt_balance',
+  ]);
+
   /**
    * Send request to extension
    */
@@ -175,7 +184,11 @@ export class ExtensionCommunicator extends EventEmitter {
     params: any = {},
     timeout = 30000
   ): Promise<T> {
-    return this.sendRequestWithRetry(method, params, 1, timeout);
+    const isInteractive = ExtensionCommunicator.NO_RETRY_METHODS.has(method);
+    const maxRetries = isInteractive ? 0 : 1;
+    // Give users 2 minutes for interactive approvals (review + sign)
+    const effectiveTimeout = isInteractive ? Math.max(timeout, 120000) : timeout;
+    return this.sendRequestWithRetry(method, params, maxRetries, effectiveTimeout);
   }
 
   /**
