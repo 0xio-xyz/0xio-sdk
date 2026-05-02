@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 2.4.3
+ * @version 2.4.4
  * @license MIT
  */
 
@@ -186,8 +186,8 @@ export class ExtensionCommunicator extends EventEmitter {
   ): Promise<T> {
     const isInteractive = ExtensionCommunicator.NO_RETRY_METHODS.has(method);
     const maxRetries = isInteractive ? 0 : 1;
-    // Give users 2 minutes for interactive approvals (review + sign)
-    const effectiveTimeout = isInteractive ? Math.max(timeout, 120000) : timeout;
+    // Give users 3 minutes for interactive approvals (review + sign + FHE proof generation)
+    const effectiveTimeout = isInteractive ? Math.max(timeout, 180000) : timeout;
     return this.sendRequestWithRetry(method, params, maxRetries, effectiveTimeout);
   }
 

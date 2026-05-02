@@ -1,10 +1,10 @@
 # 0xio Wallet SDK
 
-**Version:** 2.4.3
+**Version:** 2.4.4
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.4.3
+## What's New in v2.4.4
 
 - **Fix double popup on timeout**: Transaction/signing methods no longer retry, preventing duplicate approval popups.
 - **120s timeout for interactive methods**: Users have 2 minutes to review and approve transactions.

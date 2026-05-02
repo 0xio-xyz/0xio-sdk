@@ -2,6 +2,17 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.4.4] - 2026-05-02
+
+### Added
+- **FHE/PVAC DApp support**: `ContractCallData` types now document base64-encoded binary params for FHE ciphers, proofs, and public keys
+- **`ContractParam` type exported**: Individual param type for DApps that need to build params dynamically
+- **Approval UI documentation**: Clarified that `amount` = native OCT transferred, `ou` = gas fee shown separately in popup
+
+### Changed
+- **Interactive timeout increased to 180s** (was 120s): Covers FHE proof-heavy contract calls that need extra time for user review + signing
+- **Better JSDoc on `ContractCallData`**: Documents micro-unit amounts, FHE param encoding, and OU fee behavior
+
 ## [2.4.3] - 2026-04-24
 
 ### Fixed

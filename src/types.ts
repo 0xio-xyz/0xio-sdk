@@ -37,26 +37,42 @@ export interface TransactionData {
   readonly isPrivate?: boolean;
 }
 
-/** Flat array of AML-compatible primitive values for contract method arguments. */
-export type ContractParams = ReadonlyArray<string | number | boolean>;
+/**
+ * Contract method arguments — flat array of AML-compatible values.
+ * Supports primitives and base64-encoded binary data (e.g. FHE ciphers, proofs).
+ * Use `[arg1, arg2]` NOT `[[arg1, arg2]]` — flat, not nested.
+ */
+export type ContractParam = string | number | boolean;
+export type ContractParams = ReadonlyArray<ContractParam>;
 
 export interface ContractCallData {
   /** Contract address (oct-prefixed, 47 chars) */
   readonly contract: string;
-  /** Contract method name (e.g. 'swap', 'approve') */
+  /** Contract method name (e.g. 'swap', 'open_private_account') */
   readonly method: string;
-  /** Method arguments — flat primitives, NOT array-wrapped: `[amount, flag]` not `[[amount, flag]]` */
+  /**
+   * Method arguments — flat primitives, NOT array-wrapped.
+   * For FHE/PVAC operations, encode binary data as base64 strings:
+   * `[base64(pvacPubkey), base64(zeroCipher), base64(zeroProof)]`
+   */
   readonly params: ContractParams;
-  /** Native OCT to send with call (human-readable for sendTransaction, micro-units for callContract) */
+  /**
+   * Native OCT to send with the call (in micro-units, 1 OCT = 1000000).
+   * Set to 0 for calls that don't transfer native tokens.
+   */
   readonly amount?: string | number;
-  /** Operation units / gas limit (default: 10000) */
+  /**
+   * Operation units / gas limit (default: 10000).
+   * Higher values for complex contract operations.
+   * The approval popup shows this as the fee, separate from `amount`.
+   */
   readonly ou?: string | number;
 }
 
 export interface ContractViewCallData {
   /** Contract address (oct-prefixed, 47 chars) */
   readonly contract: string;
-  /** Contract method name (e.g. 'balance_of', 'get_active_bin') */
+  /** Contract method name (e.g. 'balance_of', 'get_active_bin', 'is_paused') */
   readonly method: string;
   /** Method arguments — flat primitives, NOT array-wrapped */
   readonly params: ContractParams;
