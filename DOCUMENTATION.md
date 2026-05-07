@@ -404,15 +404,15 @@ interface Balance {
 
 #### `getNetworkInfo(): Promise<NetworkInfo>`
 
-Get current network information.
+Get current network information. As of v2.4.5, this returns the **extension's active network** — not a hardcoded default. If the user switches from mainnet to devnet in the extension, this reflects the change.
 
 ```typescript
 const network = await wallet.getNetworkInfo();
-console.log('Network:', network.name);
+console.log('Network:', network.name);     // "Octra Mainnet" or "Octra Devnet"
 console.log('RPC:', network.rpcUrl);
 console.log('Explorer:', network.explorerUrl);
-console.log('Privacy:', network.supportsPrivacy); // true on devnet
-console.log('Testnet:', network.isTestnet);
+console.log('Privacy:', network.supportsPrivacy); // true on both mainnet and devnet
+console.log('Testnet:', network.isTestnet);       // true for devnet
 ```
 
 **Returns:**

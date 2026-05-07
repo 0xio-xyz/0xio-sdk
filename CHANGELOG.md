@@ -2,6 +2,24 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.4.5] - 2026-05-07
+
+### Fixed
+- **[CRITICAL] Network detection**: SDK now reads `networkId` from the extension's `getConnectionStatus` and `connect` responses instead of using hardcoded `DEFAULT_NETWORK_ID` (mainnet). Previously, DApps connected to a devnet extension would incorrectly report mainnet network info and fetch mainnet balances.
+- **[HIGH] Stale balance on reconnect**: `getConnectionStatus` returned `{total: 0, public: 0}` cached from last session. Extension now fetches live balance via `octra_balance` RPC on every status check.
+- **[HIGH] Transaction history stub**: `getTransactionHistory()` returned empty `{transactions: []}`. Extension now calls `octra_transactionsByAddress` with proper pagination and returns `{transactions, totalCount, page, hasMore}`.
+- **[MEDIUM] Event name mismatch**: Extension emitted `transactionComplete` but SDK listened for `transactionConfirmed`. Extension renamed to `transactionConfirmed` for alignment.
+- **[MEDIUM] Private balance info field name**: Extension returned `privateBalance` (number) but SDK type expects `encryptedAmount` (string). Extension now returns `encryptedAmount` matching the `PrivateBalanceInfo` interface.
+
+### Changed
+- **Connect response enriched**: Extension now returns `networkInfo` (id, name, rpcUrl, color, isTestnet) and `permissions` array in both fresh connect and reconnect responses.
+- **Network info complete**: `getNetworkInfo` response now includes `explorerUrl`, `explorerAddressUrl`, `indexerUrl`, `supportsPrivacy`, `isTestnet` fields.
+- **networkInfo fallback chain**: SDK tries `result.networkInfo` → `getNetworkConfig(result.networkId)` → `getNetworkConfig(this.config.networkId)`.
+
+### Compatibility
+- Requires 0xio Wallet Extension v2.3.5+ for full alignment
+- Older extensions work but return partial data (SDK falls back gracefully)
+
 ## [2.4.4] - 2026-05-02
 
 ### Added
