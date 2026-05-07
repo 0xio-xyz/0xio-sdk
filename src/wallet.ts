@@ -135,13 +135,16 @@ export class ZeroXIOWallet extends EventEmitter {
         networkId: options.networkId || this.config.networkId
       });
 
+      // Use networkInfo from extension response, fallback to config-based
+      const networkInfo = result.networkInfo || getNetworkConfig(result.networkId || this.config.networkId);
+
       // Update connection info
       this.connectionInfo = {
         isConnected: true,
         address: result.address,
         publicKey: result.publicKey,
         balance: result.balance,
-        networkInfo: result.networkInfo,
+        networkInfo,
         connectedAt: Date.now()
       };
 
@@ -149,8 +152,8 @@ export class ZeroXIOWallet extends EventEmitter {
         address: result.address,
         publicKey: result.publicKey,
         balance: result.balance,
-        networkInfo: result.networkInfo,
-        permissions: result.permissions
+        networkInfo,
+        permissions: result.permissions || []
       };
 
       // Emit connect event
@@ -224,7 +227,9 @@ export class ZeroXIOWallet extends EventEmitter {
       if (result.isConnected && result.address) {
         // Update internal state if we discover an existing connection
         const balanceInfo = createDefaultBalance(result.balance);
-        const networkInfo = getNetworkConfig(this.config.networkId);
+        // Use network from extension response (actual active network), fallback to config
+        const activeNetworkId = result.networkId || this.config.networkId;
+        const networkInfo = getNetworkConfig(activeNetworkId);
 
         this.connectionInfo = {
           isConnected: true,
