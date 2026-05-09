@@ -2,6 +2,17 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.5.0] - 2026-05-10
+
+### Added
+- **`switchNetwork(networkId)`**: Silently switch the extension's active network without opening the popup. Works like Rabby's `wallet_switchEthereumChain` — DApps can detect network mismatch and offer one-click switch.
+- **`getNetworkId()`**: Returns the extension's current network ID ('mainnet' or 'devnet').
+- DApps can now detect + switch network programmatically, enabling network-aware UIs.
+
+### Compatibility
+- Requires 0xio Wallet Extension v2.3.6+ for `switchNetwork` support
+- Older extensions will throw on `switchNetwork` calls (graceful fallback recommended)
+
 ## [2.4.5] - 2026-05-07
 
 ### Fixed

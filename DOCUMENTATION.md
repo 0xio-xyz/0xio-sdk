@@ -376,6 +376,33 @@ const address = wallet.getAddress();
 console.log('Address:', address); // 'oct1...' or null
 ```
 
+#### `switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }>`
+
+Silently switch the extension's active network. No popup, no user confirmation needed. DApps can detect network mismatch and offer one-click switch, similar to Rabby's `wallet_switchEthereumChain`.
+
+```typescript
+// Check current network
+const networkId = wallet.getNetworkId(); // 'mainnet' or 'devnet'
+
+// Switch if wrong network
+if (networkId !== 'devnet') {
+  const result = await wallet.switchNetwork('devnet');
+  console.log(result.switched); // true
+  // Extension broadcasts networkChanged event automatically
+}
+```
+
+**Requires:** Extension v2.3.6+
+
+#### `getNetworkId(): string | null`
+
+Get the extension's current active network.
+
+```typescript
+const networkId = wallet.getNetworkId();
+// Returns: 'mainnet', 'devnet', or null if not connected
+```
+
 #### `getBalance(forceRefresh?: boolean): Promise<Balance>`
 
 Get wallet balance.

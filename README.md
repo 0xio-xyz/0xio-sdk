@@ -1,16 +1,22 @@
 # 0xio Wallet SDK
 
-**Version:** 2.4.5
+**Version:** 2.5.0
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.4.5
+## What's New in v2.5.0
 
-- **Correct network detection**: SDK now reads the active network from the extension instead of hardcoding mainnet. DApps on devnet will correctly show devnet balances and network info.
-- **Full networkInfo in connect response**: Extension returns complete network config (id, name, rpcUrl, explorerUrl, isTestnet) on connect.
-- **Live balance on reconnect**: `getConnectionStatus` now fetches fresh balance from chain instead of returning stale cached zeros.
-- **Transaction history**: `getTransactionHistory()` now returns real on-chain transactions with pagination (was returning empty stub).
-- **Event alignment**: `transactionConfirmed` event now fires correctly from extension (was `transactionComplete`).
+- **`switchNetwork(networkId)`**: Switch the extension's network silently — no popup, no user action. DApps can detect network mismatch and offer one-click switch (like Rabby).
+- **`getNetworkId()`**: Get the extension's current active network.
+- **Network-aware DApps**: Detect if user is on mainnet vs devnet, show banner, switch with one click.
+
+## v2.4.5
+
+- **Correct network detection**: SDK reads active network from extension instead of hardcoding mainnet.
+- **Full networkInfo in connect response**: Extension returns complete network config.
+- **Live balance on reconnect**: Fresh balance from chain instead of stale cached zeros.
+- **Transaction history**: Real on-chain transactions with pagination.
+- **Event alignment**: `transactionConfirmed` event fires correctly.
 
 ## v2.4.4
 

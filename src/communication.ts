@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 2.4.4
+ * @version 2.5.0
  * @license MIT
  */
 

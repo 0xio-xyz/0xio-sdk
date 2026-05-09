@@ -265,6 +265,40 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
+  /**
+   * Switch the extension's active network (e.g. 'mainnet' → 'devnet').
+   * Works silently — no popup, no user confirmation needed.
+   * The extension broadcasts 'networkChanged' event to all connected dApps.
+   */
+  async switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }> {
+    this.ensureInitialized();
+
+    try {
+      const result = await this.communicator.sendRequest('switch_network', { networkId });
+      this.logger.log(`Network switch result:`, result);
+
+      if (result.switched) {
+        // Update internal state
+        const networkInfo = getNetworkConfig(networkId);
+        if (this.connectionInfo.isConnected) {
+          this.connectionInfo.networkInfo = networkInfo;
+        }
+      }
+
+      return { network: result.network || networkId, switched: result.switched ?? false };
+    } catch (error) {
+      this.logger.error('Failed to switch network:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the extension's current network ID ('mainnet' or 'devnet')
+   */
+  getNetworkId(): string | null {
+    return this.connectionInfo.networkInfo?.id || null;
+  }
+
   // ===================
   // WALLET INFORMATION
   // ===================
