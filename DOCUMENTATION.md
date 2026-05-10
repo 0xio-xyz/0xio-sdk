@@ -730,16 +730,17 @@ if (success) {
 
 #### `sendPrivateTransfer(data: PrivateTransferData): Promise<TransactionResult>`
 
-Send an encrypted private transfer.
+> **Not yet available via SDK.** Privacy operations (encrypt, decrypt, private transfer, claim) must be performed from within the 0xio Wallet extension directly. This method will return `NOT_AVAILABLE` error. Support for DApp-initiated privacy operations is planned for a future release with `@0xio/pvac` integration.
+
+Send an encrypted private transfer (future).
 
 ```typescript
+// Currently returns NOT_AVAILABLE — use extension UI instead
 const result = await wallet.sendPrivateTransfer({
   to: 'oct1recipient...',
   amount: 50,
   message: 'Private payment'
 });
-
-console.log('Private transfer sent:', result.txHash);
 ```
 
 #### `getPendingPrivateTransfers(): Promise<PendingPrivateTransfer[]>`
