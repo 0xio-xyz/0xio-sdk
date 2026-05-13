@@ -2,6 +2,22 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.6.0] - 2026-05-13
+
+### Added
+- **`sendPrivateTransfer()`**: Send encrypted (stealth) transfers to any address. The extension handles PVAC ciphertext subtraction, range proof, and zero proof generation. The node re-encrypts the amount under the recipient's public key. Enables privacy-preserving dApps (prediction markets, private payments, stealth bets).
+- **`getPendingPrivateTransfers()`**: List incoming private transfers that can be claimed by the connected wallet.
+- **`claimPrivateTransfer(transferId)`**: Claim a pending private transfer, adding it to the wallet's encrypted balance.
+
+### Changed
+- Privacy transfer methods no longer return NOT_AVAILABLE — fully wired to extension v2.4.0+
+- Updated JSDoc for all privacy methods with PVAC flow description
+
+### Compatibility
+- Requires 0xio Wallet Extension v2.4.0+ for privacy transfer support
+- Older extensions will throw on privacy transfer calls
+- DApps requesting `'private_transfers'` permission get access to all three methods
+
 ## [2.5.0] - 2026-05-10
 
 ### Added

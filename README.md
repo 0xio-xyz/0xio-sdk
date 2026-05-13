@@ -1,10 +1,18 @@
 # 0xio Wallet SDK
 
-**Version:** 2.5.0
+**Version:** 2.6.0
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
 
-## What's New in v2.5.0
+## What's New in v2.6.0
+
+- **`sendPrivateTransfer(to, amount)`**: Send encrypted (stealth) transfers — amount is hidden from everyone except sender and recipient. Uses PVAC-HFHE for ciphertext subtraction + zero-knowledge proofs. The node re-encrypts under the recipient's key.
+- **`getPendingPrivateTransfers()`**: List incoming private transfers claimable by your wallet.
+- **`claimPrivateTransfer(transferId)`**: Claim a pending private transfer into your encrypted balance.
+- **Privacy-first DApps**: Build prediction markets, private payments, stealth bets — all amounts stay encrypted on-chain.
+- Requires 0xio Wallet Extension v2.4.0+
+
+## v2.5.0
 
 - **`switchNetwork(networkId)`**: Switch the extension's network silently — no popup, no user action. DApps can detect network mismatch and offer one-click switch (like Rabby).
 - **`getNetworkId()`**: Get the extension's current active network.

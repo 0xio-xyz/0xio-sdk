@@ -730,18 +730,27 @@ if (success) {
 
 #### `sendPrivateTransfer(data: PrivateTransferData): Promise<TransactionResult>`
 
-> **Not yet available via SDK.** Privacy operations (encrypt, decrypt, private transfer, claim) must be performed from within the 0xio Wallet extension directly. This method will return `NOT_AVAILABLE` error. Support for DApp-initiated privacy operations is planned for a future release with `@0xio/pvac` integration.
+Send an encrypted (stealth) transfer to any address. The extension handles all cryptography:
+1. Subtracts the amount from sender's encrypted balance (`ct_sub`)
+2. Generates a range proof (proves amount is valid without revealing it)
+3. Generates a zero proof (proves the subtraction is correct)
+4. Submits the encrypted transaction to the network
+5. The node re-encrypts the amount under the recipient's public key
 
-Send an encrypted private transfer (future).
+The amount is never visible on-chain — only sender and recipient can see it.
+
+Requires `'private_transfers'` permission and 0xio Wallet Extension v2.4.0+.
 
 ```typescript
-// Currently returns NOT_AVAILABLE — use extension UI instead
 const result = await wallet.sendPrivateTransfer({
-  to: 'oct1recipient...',
+  to: 'octRecipientAddress...',
   amount: 50,
   message: 'Private payment'
 });
+console.log('TX:', result.txHash);
 ```
+
+**Use cases:** prediction markets (hidden bets), private payments, stealth transfers, confidential DeFi.
 
 #### `getPendingPrivateTransfers(): Promise<PendingPrivateTransfer[]>`
 
