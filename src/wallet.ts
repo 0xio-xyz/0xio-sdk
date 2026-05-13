@@ -639,7 +639,12 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Send private transfer
+   * Send a private (encrypted) transfer to another address.
+   * The extension builds the PVAC ciphertext subtraction + range proof + zero proof,
+   * then submits the encrypted transaction to the network. The recipient's encrypted
+   * balance is updated by the node using re-encryption under their public key.
+   * Requires 'private_transfers' permission.
+   * @since 2.6.0
    */
   async sendPrivateTransfer(transferData: PrivateTransferData): Promise<TransactionResult> {
     this.ensureConnected();
@@ -665,7 +670,9 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Get pending private transfers
+   * Get pending private transfers that can be claimed by this wallet.
+   * Returns transfers where the connected address is the recipient.
+   * @since 2.6.0
    */
   async getPendingPrivateTransfers(): Promise<PendingPrivateTransfer[]> {
     this.ensureConnected();
@@ -683,7 +690,8 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Claim private transfer
+   * Claim a pending private transfer, adding it to the wallet's encrypted balance.
+   * @since 2.6.0
    */
   async claimPrivateTransfer(transferId: string): Promise<TransactionResult> {
     this.ensureConnected();
