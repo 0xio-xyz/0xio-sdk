@@ -28,6 +28,11 @@ export { ZeroXIOWallet } from './wallet';
 export { EventEmitter } from './events';
 export { ExtensionCommunicator } from './communication';
 
+// Adapter exports — implement WalletTransportAdapter to add new wallet support
+export type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from './adapter';
+export { ZeroXIOAdapter, createZeroXIOAdapter } from './supports/0xio';
+export { detectWalletAdapter, getAllAdapters } from './supports';
+
 // Type exports
 export type {
   // Core types
@@ -97,6 +102,9 @@ export {
   isValidMessage,
   isValidFeeLevel,
 
+  // Address derivation
+  deriveOctraAddress,
+
   // Formatting utilities
   formatOCT,
   formatOCT as formatZeroXIO,
@@ -116,8 +124,6 @@ export {
 
   // Async utilities
   delay,
-  retry,
-  withTimeout,
 
   // Browser utilities
   isBrowser,
@@ -129,7 +135,7 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.6.0';
+export const SDK_VERSION = '2.7.0';
 export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
 export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
@@ -140,13 +146,15 @@ export async function createZeroXIOWallet(config: {
   appDescription?: string;
   debug?: boolean;
   autoConnect?: boolean;
+  adapter?: import('./adapter').WalletTransportAdapter;
 }) {
   const { ZeroXIOWallet } = await import('./wallet');
 
   const wallet = new ZeroXIOWallet({
     appName: config.appName,
     appDescription: config.appDescription,
-    debug: config.debug || false
+    debug: config.debug || false,
+    ...(config.adapter ? { adapter: config.adapter } : {}),
   });
 
   await wallet.initialize();
@@ -165,8 +173,6 @@ export async function createZeroXIOWallet(config: {
   return wallet;
 }
 
-// Legacy alias for backward compatibility
-export const createOctraWallet = createZeroXIOWallet;
 
 // Browser detection and compatibility check
 export function checkSDKCompatibility(): {
@@ -177,18 +183,38 @@ export function checkSDKCompatibility(): {
   const issues: string[] = [];
   const recommendations: string[] = [];
 
-  // Basic browser support check
+  // Hard blockers — SDK cannot function without these
   if (typeof window === 'undefined') {
     issues.push('Window object not available');
     recommendations.push('SDK must be used in a browser environment');
+    return { compatible: false, issues, recommendations };
   }
 
-  // Check for extension APIs
-  if (typeof window !== 'undefined') {
+  if (typeof window.postMessage !== 'function') {
+    issues.push('postMessage API not available');
+    recommendations.push('Your browser environment must support postMessage');
+  }
+
+  if (typeof window.addEventListener !== 'function') {
+    issues.push('addEventListener not available');
+  }
+
+  if (typeof Promise === 'undefined') {
+    issues.push('Promise not available');
+  }
+
+  // Informational: note which transport is likely active
+  if (issues.length === 0) {
     const win = window as any;
-    if (!win.chrome || !win.chrome.runtime) {
-      issues.push('Chrome extension APIs not available');
-      recommendations.push('This SDK requires a Chromium-based browser (Chrome, Edge, Brave, etc.)');
+    const hasExtension = !!(win.wallet0xio || win.ZeroXIOWallet || win.chrome?.runtime?.id ||
+      document.querySelector('meta[name="0xio-dapp"]') || document.querySelector('[data-0xio-sdk-bridge]'));
+    const hasParentBridge = window.parent !== window;
+
+    if (!hasExtension && !hasParentBridge) {
+      recommendations.push(
+        'No 0xio transport detected yet. Install the 0xio Wallet browser extension, ' +
+        'or run inside the 0xio Desktop/Mobile app iframe bridge.'
+      );
     }
   }
 

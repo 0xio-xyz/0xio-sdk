@@ -53,10 +53,11 @@ export class EventEmitter {
    */
   once<T = any>(eventType: WalletEventType, listener: EventListener<T>): void {
     const onceListener: EventListener<T> = (event) => {
-      listener(event);
+      // Remove BEFORE calling so a throwing listener doesn't stay registered
       this.off(eventType, onceListener);
+      listener(event);
     };
-    
+
     this.on(eventType, onceListener);
   }
 

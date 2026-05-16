@@ -23,9 +23,15 @@ export function isValidAddress(address: string): boolean {
 }
 
 /**
- * Validate transaction amount
+ * Validate transaction amount.
+ * Accepts both number and string representations.
+ * String amounts avoid JS number precision loss for very large values.
  */
-export function isValidAmount(amount: number): boolean {
+export function isValidAmount(amount: string | number): boolean {
+  if (typeof amount === 'string') {
+    const n = parseFloat(amount);
+    return !isNaN(n) && n > 0 && Number.isFinite(n);
+  }
   return typeof amount === 'number' &&
     amount > 0 &&
     Number.isFinite(amount) &&
@@ -36,12 +42,14 @@ export function isValidAmount(amount: number): boolean {
  * Validate transaction message
  */
 export function isValidMessage(message: string): boolean {
-  if (!message) {
-    return true; // Empty messages are valid
+  // Type check first — falsy non-strings (0, false, null) are NOT valid messages
+  if (typeof message !== 'string') {
+    return message === undefined || message === null ? true : false;
   }
 
-  if (typeof message !== 'string') {
-    return false;
+  // Empty string is valid (optional field)
+  if (message.length === 0) {
+    return true;
   }
 
   // 100KB limit — contract call params can be large (serialized JSON)
@@ -56,18 +64,68 @@ export function isValidFeeLevel(feeLevel: number): boolean {
 }
 
 // ===================
+// ADDRESS DERIVATION
+// ===================
+
+const _B58_ALPHA = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function _base58Encode(buf: Uint8Array): string {
+  let zeros = 0;
+  for (let i = 0; i < buf.length && buf[i] === 0; i++) zeros++;
+
+  const digits: number[] = [];
+  for (let i = zeros; i < buf.length; i++) {
+    let carry = buf[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+
+  let out = '';
+  for (let i = 0; i < zeros; i++) out += _B58_ALPHA[0];
+  for (let i = digits.length - 1; i >= 0; i--) out += _B58_ALPHA[digits[i]];
+  return out;
+}
+
+/**
+ * Derive the canonical Octra address from a base64-encoded Ed25519 public key.
+ * Algorithm: SHA-256(pubkey_bytes) → base58 → prepend "oct"
+ * Source of truth: ocho-push-server/src/index.ts#deriveAddressFromPubkey
+ */
+export async function deriveOctraAddress(publicKeyBase64: string): Promise<string> {
+  if (!publicKeyBase64 || typeof publicKeyBase64 !== 'string') {
+    throw new Error('publicKeyBase64 must be a non-empty string');
+  }
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('Web Crypto API is not available in this environment');
+  }
+  const binStr = atob(publicKeyBase64);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+  const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
+  return 'oct' + _base58Encode(new Uint8Array(hashBuf));
+}
+
+// ===================
 // FORMATTING UTILITIES
 // ===================
 
 /**
  * Format OCT amount for display
  */
-export function formatOCT(amount: number, decimals = 6): string {
-  if (!isValidAmount(amount)) {
+export function formatOCT(amount: number | string, decimals = 6): string {
+  const n = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (!isValidAmount(n)) {
     return '0';
   }
 
-  return amount.toLocaleString(undefined, {
+  return n.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals
   });

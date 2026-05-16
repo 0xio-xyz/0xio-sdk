@@ -2,6 +2,56 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.7.0] - 2026-05-16
+
+### Security (post-audit remediation)
+
+**Transport hardening:**
+- Session nonce validation on all bridge responses — blocks same-origin impersonation
+- Removed wildcard `'*'` postMessage fallback — parent only addressed once origin established
+- Removed `Math.random()` fallback for request IDs — throws if `crypto` unavailable
+- `requestTimestamps` capped to prevent unbounded growth in idle tabs
+- Removed legacy `octraWalletReady` listeners and `createOctraWallet` alias
+
+### Added
+
+- **Pluggable wallet adapter system** (`src/adapter.ts`, `src/supports/`):
+  - `WalletTransportAdapter` interface — add support for any wallet without touching core SDK
+  - `src/supports/0xio.ts` — built-in adapter with session nonce + iframe bridge support
+  - `src/supports/template.ts` — starter template for new adapters
+  - `detectWalletAdapter()` auto-detect helper
+  - Exported: `WalletTransportAdapter`, `AdapterRequest`, `AdapterIncomingMessage`, `ZeroXIOAdapter`, `createZeroXIOAdapter`, `detectWalletAdapter`, `getAllAdapters`
+
+### Changed
+
+- `ExtensionCommunicator` delegates to adapter for detect, postMessage, listen, and ready events
+- Session nonce handling moved from communicator to adapter
+- Requires Chrome 111+ when using the 0xio browser extension
+- No breaking changes to `ZeroXIOWallet` public API
+
+**SDK fixes:**
+- Session versioning — `_sessionVersion` counter prevents stale writes from in-flight requests after disconnect/account switch
+- Debug log scrubbing — only non-sensitive fields logged (`{ to }`, `{ contract, method }`, `{ public }`)
+- Removed `retry()` and `withTimeout()` from public API export
+- Per-method payload size limits — method names ≤ 200 chars, params ≤ 64 KB, memos ≤ 1,000 chars
+- Input validation at all mutating method entry points (`isValidAddress()`, `isValidAmount()`)
+- Added `signAuthMessage(service, nonce)` — domain-separated auth signing with origin binding
+- Amount types accept `string | number` — eliminates JS precision loss for large values
+- Added `deriveOctraAddress(publicKeyBase64)` — `connect()` and `getConnectionStatus()` verify pubkey→addr binding
+- `encrypt/decryptBalance()` return full `TransactionResult` (was boolean)
+- `contractCallView` no longer leaks connected address as default caller
+- `balanceChanged` emits on public/private split change (not just total)
+- `once()` removes listener before invoke — throwing listeners no longer re-fire
+- `extensionLocked`/`extensionUnlocked` events emitted (were suppressed)
+- Permissions stored in `ConnectionInfo` and survive session restore
+- `connectedAt` preserved across `getConnectionStatus()` polls
+- `connect` event only emits on disconnected→connected transition
+- `NETWORKS` frozen + `getNetworkConfig()` returns frozen copies
+- `validateBalance()` uses `Number()` not `parseFloat()` — rejects partial numerics
+- `validateNetworkInfo()` rejects empty rpcUrl (except custom network)
+- `switchNetwork()` requires active connection
+- `checkSDKCompatibility()` no longer falsely flags non-Chrome transports
+
 ## [2.6.0] - 2026-05-13
 
 ### Added

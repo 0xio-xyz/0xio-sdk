@@ -27,14 +27,17 @@ import {
   BalanceChangedEvent,
   NetworkChangedEvent
 } from './types';
-import { getNetworkConfig, createDefaultBalance } from './config';
-import { createLogger } from './utils';
+import { getNetworkConfig, createDefaultBalance, validateBalance, validateNetworkInfo } from './config';
+import { createLogger, isValidAddress, isValidAmount, deriveOctraAddress } from './utils';
 
 export class ZeroXIOWallet extends EventEmitter {
   private communicator: ExtensionCommunicator;
   private config: SDKConfig;
   private connectionInfo: ConnectionInfo = { isConnected: false };
   private isInitialized = false;
+  private _initPromise: Promise<boolean> | null = null;
+  // session version — stale write detection
+  private _sessionVersion = 0;
   private logger: ReturnType<typeof createLogger>;
 
   constructor(config: SDKConfig) {
@@ -48,7 +51,7 @@ export class ZeroXIOWallet extends EventEmitter {
     };
 
     this.logger = createLogger('ZeroXIOWallet', this.config.debug || false);
-    this.communicator = new ExtensionCommunicator(this.config.debug);
+    this.communicator = new ExtensionCommunicator(this.config.debug, [], this.config.adapter);
 
     this.logger.log('Wallet instance created with config:', this.config);
   }
@@ -66,48 +69,59 @@ export class ZeroXIOWallet extends EventEmitter {
       return true;
     }
 
-    try {
-      // Initialize extension communication
-      const communicationReady = await this.communicator.initialize();
-      if (!communicationReady) {
-        throw new ZeroXIOWalletError(
-          ErrorCode.EXTENSION_NOT_FOUND,
-          'Failed to establish communication with 0xio Wallet extension'
-        );
-      }
-
-      // Register this DApp with the extension
-      await this.communicator.sendRequest('register_dapp', {
-        appName: this.config.appName,
-        appDescription: this.config.appDescription,
-        appVersion: this.config.appVersion,
-        appUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
-        appIcon: this.config.appIcon,
-        requiredPermissions: this.config.requiredPermissions,
-        networkId: this.config.networkId
-      });
-
-      // Setup event forwarding from extension
-      this.setupExtensionEventListeners();
-
-      this.isInitialized = true;
-
-      this.logger.log('SDK initialized successfully');
-
-      return true;
-    } catch (error) {
-      this.logger.error('Failed to initialize:', error);
-
-      if (error instanceof ZeroXIOWalletError) {
-        throw error;
-      }
-
-      throw new ZeroXIOWalletError(
-        ErrorCode.UNKNOWN_ERROR,
-        'Failed to initialize SDK',
-        error
-      );
+    // single-flight init
+    if (this._initPromise) {
+      return this._initPromise;
     }
+
+    this._initPromise = (async () => {
+      try {
+        // Initialize extension communication
+        const communicationReady = await this.communicator.initialize();
+        if (!communicationReady) {
+          throw new ZeroXIOWalletError(
+            ErrorCode.EXTENSION_NOT_FOUND,
+            'Failed to establish communication with 0xio Wallet extension'
+          );
+        }
+
+        // Register this DApp with the extension
+        await this.communicator.sendRequest('register_dapp', {
+          appName: this.config.appName,
+          appDescription: this.config.appDescription,
+          appVersion: this.config.appVersion,
+          appUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
+          appIcon: this.config.appIcon,
+          requiredPermissions: this.config.requiredPermissions,
+          networkId: this.config.networkId
+        });
+
+        // Setup event forwarding from extension
+        this.setupExtensionEventListeners();
+
+        this.isInitialized = true;
+
+        this.logger.log('SDK initialized successfully');
+
+        return true;
+      } catch (error) {
+        this.logger.error('Failed to initialize:', error);
+
+        if (error instanceof ZeroXIOWalletError) {
+          throw error;
+        }
+
+        throw new ZeroXIOWalletError(
+          ErrorCode.UNKNOWN_ERROR,
+          'Failed to initialize SDK',
+          error
+        );
+      } finally {
+        this._initPromise = null;
+      }
+    })();
+
+    return this._initPromise;
   }
 
   /**
@@ -130,22 +144,47 @@ export class ZeroXIOWallet extends EventEmitter {
     try {
       this.logger.log('Attempting to connect with options:', options);
 
+      // filter to declared perms only
+      const declaredPermissions = this.config.requiredPermissions || [];
+      const requestPermissions = options.requestPermissions
+        ? options.requestPermissions.filter(p => declaredPermissions.includes(p))
+        : declaredPermissions;
+
       const result = await this.communicator.sendRequest('connect', {
-        requestPermissions: options.requestPermissions || this.config.requiredPermissions,
+        requestPermissions,
         networkId: options.networkId || this.config.networkId
       });
 
-      // Use networkInfo from extension response, fallback to config-based
-      const networkInfo = result.networkInfo || getNetworkConfig(result.networkId || this.config.networkId);
+      // verify pubkey→addr binding
+      if (result.publicKey && result.address) {
+        try {
+          const derived = await deriveOctraAddress(result.publicKey);
+          if (derived !== result.address) {
+            throw new ZeroXIOWalletError(
+              ErrorCode.UNKNOWN_ERROR,
+              'Address-key binding verification failed — the reported public key does not derive to the reported address'
+            );
+          }
+        } catch (e) {
+          if (e instanceof ZeroXIOWalletError) throw e;
+          this.logger.warn('Address derivation check skipped (crypto unavailable):', e);
+        }
+      }
 
-      // Update connection info
+      // Use networkInfo from extension response — validate before caching
+      const networkInfo = validateNetworkInfo(result.networkInfo)
+        ?? getNetworkConfig(result.networkId || this.config.networkId);
+      const permissions = result.permissions || [];
+
+      // Update connection info — including permissions
       this.connectionInfo = {
         isConnected: true,
         address: result.address,
         publicKey: result.publicKey,
         balance: result.balance,
         networkInfo,
-        connectedAt: Date.now()
+        connectedAt: Date.now(),
+        permissions
       };
 
       const connectEvent: ConnectEvent = {
@@ -153,13 +192,13 @@ export class ZeroXIOWallet extends EventEmitter {
         publicKey: result.publicKey,
         balance: result.balance,
         networkInfo,
-        permissions: result.permissions || []
+        permissions
       };
 
       // Emit connect event
       this.emit('connect', connectEvent);
 
-      this.logger.log('Connected successfully:', connectEvent);
+      this.logger.log('Connected successfully:', { address: connectEvent.address, network: networkInfo.id });
 
       return connectEvent;
     } catch (error) {
@@ -186,6 +225,7 @@ export class ZeroXIOWallet extends EventEmitter {
     try {
       await this.communicator.sendRequest('disconnect');
 
+      ++this._sessionVersion;
       this.connectionInfo = { isConnected: false };
 
       const disconnectEvent: DisconnectEvent = {
@@ -222,14 +262,37 @@ export class ZeroXIOWallet extends EventEmitter {
     this.ensureInitialized();
 
     try {
+      const sv = this._sessionVersion;
       const result = await this.communicator.sendRequest('getConnectionStatus');
 
+      // skip if session changed mid-flight
+      if (this._sessionVersion !== sv) return { ...this.connectionInfo };
+
       if (result.isConnected && result.address) {
-        // Update internal state if we discover an existing connection
-        const balanceInfo = createDefaultBalance(result.balance);
-        // Use network from extension response (actual active network), fallback to config
-        const activeNetworkId = result.networkId || this.config.networkId;
-        const networkInfo = getNetworkConfig(activeNetworkId);
+        // verify pubkey→addr binding
+        if (result.publicKey) {
+          try {
+            const derived = await deriveOctraAddress(result.publicKey);
+            if (derived !== result.address) {
+              this.logger.warn('Address-key binding mismatch on session restore — ignoring stale session');
+              this.connectionInfo = { isConnected: false };
+              return { ...this.connectionInfo };
+            }
+          } catch (e) {
+            this.logger.warn('Address derivation check skipped (crypto unavailable):', e);
+          }
+        }
+
+        // validate untrusted balance/networkInfo before caching
+        const balanceInfo = validateBalance(result.balance) ?? createDefaultBalance();
+        const networkInfo = validateNetworkInfo(result.networkInfo)
+          ?? getNetworkConfig(result.networkId || this.config.networkId);
+
+        const wasConnected = this.connectionInfo.isConnected;
+        const permissions = result.permissions || [];
+
+        // preserve existing connectedAt
+        const connectedAt = this.connectionInfo.connectedAt || result.connectedAt || Date.now();
 
         this.connectionInfo = {
           isConnected: true,
@@ -237,20 +300,24 @@ export class ZeroXIOWallet extends EventEmitter {
           publicKey: result.publicKey,
           balance: balanceInfo,
           networkInfo,
-          connectedAt: result.connectedAt || Date.now()
+          connectedAt,
+          permissions
         };
 
-        this.logger.log('Discovered existing connection:', this.connectionInfo);
+        this.logger.log('Discovered existing connection:', { address: result.address, network: networkInfo.id });
 
-        // Emit connect event to notify the wrapper
-        const connectEvent: ConnectEvent = {
-          address: result.address,
-          balance: balanceInfo,
-          networkInfo,
-          permissions: result.permissions || []
-        };
+        // only emit on disconnected→connected transition
+        if (!wasConnected) {
+          const connectEvent: ConnectEvent = {
+            address: result.address,
+            publicKey: result.publicKey,
+            balance: balanceInfo,
+            networkInfo,
+            permissions
+          };
 
-        this.emit('connect', connectEvent);
+          this.emit('connect', connectEvent);
+        }
       } else {
         // No existing connection
         this.connectionInfo = { isConnected: false };
@@ -271,11 +338,15 @@ export class ZeroXIOWallet extends EventEmitter {
    * The extension broadcasts 'networkChanged' event to all connected dApps.
    */
   async switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }> {
-    this.ensureInitialized();
+    this.ensureConnected();
 
     try {
+      const sv = this._sessionVersion;
       const result = await this.communicator.sendRequest('switch_network', { networkId });
       this.logger.log(`Network switch result:`, result);
+
+      // skip if session changed mid-flight
+      if (this._sessionVersion !== sv) return { network: result.network || networkId, switched: result.switched ?? false };
 
       if (result.switched) {
         // Update internal state
@@ -326,11 +397,12 @@ export class ZeroXIOWallet extends EventEmitter {
       let publicBalance = 0;
       let privateBalance = 0;
 
+      const sv = this._sessionVersion;
       const extResult = await this.communicator.sendRequest('getBalance', { forceRefresh });
       publicBalance = parseFloat(extResult.balance || '0');
       privateBalance = parseFloat(extResult.privateBalance || '0');
 
-      this.logger.log('Balance fetched from extension:', { public: publicBalance, private: privateBalance });
+      this.logger.log('Balance fetched from extension:', { public: publicBalance });
 
       const result: Balance = {
         public: publicBalance,
@@ -339,13 +411,18 @@ export class ZeroXIOWallet extends EventEmitter {
         currency: 'OCT'
       };
 
+      // skip if session changed mid-flight
+      if (this._sessionVersion !== sv) return result;
+
       // Update cached balance
       if (this.connectionInfo.balance) {
         const previousBalance = this.connectionInfo.balance;
         this.connectionInfo.balance = result;
 
-        // Emit balance changed event if different
-        if (previousBalance.total !== result.total) {
+        // emit on total or pub/priv split change
+        if (previousBalance.total !== result.total ||
+            previousBalance.public !== result.public ||
+            previousBalance.private !== result.private) {
           const balanceChangedEvent: BalanceChangedEvent = {
             address: this.connectionInfo.address!,
             previousBalance,
@@ -360,6 +437,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
+      if (error instanceof ZeroXIOWalletError) throw error;
       throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get balance',
@@ -375,28 +453,39 @@ export class ZeroXIOWallet extends EventEmitter {
     this.ensureInitialized();
 
     try {
+      const sv = this._sessionVersion;
       const result = await this.communicator.sendRequest('get_network_info');
+
+      // validate network info before caching
+      const networkInfo = validateNetworkInfo(result);
+      if (!networkInfo) {
+        throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Extension returned invalid network info');
+      }
+
+      // skip if session changed mid-flight
+      if (this._sessionVersion !== sv) return networkInfo;
 
       // Update cached network info
       if (this.connectionInfo.networkInfo) {
         const previousNetwork = this.connectionInfo.networkInfo;
-        this.connectionInfo.networkInfo = result;
+        this.connectionInfo.networkInfo = networkInfo;
 
         // Emit network changed event if different
-        if (previousNetwork.id !== result.id) {
+        if (previousNetwork.id !== networkInfo.id) {
           const networkChangedEvent: NetworkChangedEvent = {
             previousNetwork,
-            newNetwork: result
+            newNetwork: networkInfo
           };
 
           this.emit('networkChanged', networkChangedEvent);
         }
       } else {
-        this.connectionInfo.networkInfo = result;
+        this.connectionInfo.networkInfo = networkInfo;
       }
 
-      return result;
+      return networkInfo;
     } catch (error) {
+      if (error instanceof ZeroXIOWalletError) throw error;
       throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get network info',
@@ -415,8 +504,21 @@ export class ZeroXIOWallet extends EventEmitter {
   async sendTransaction(txData: TransactionData): Promise<TransactionResult> {
     this.ensureConnected();
 
+    // validate inputs
+    if (!isValidAddress(txData.to)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid recipient address');
+    }
+    if (!isValidAmount(txData.amount)) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transaction amount');
+    }
+    // bound memo
+    if (txData.message && txData.message.length > 1000) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Transaction message too long (max 1,000 characters)');
+    }
+
     try {
-      this.logger.log('Sending transaction:', txData);
+      // log non-sensitive only
+      this.logger.log('Sending transaction:', { to: txData.to });
 
       const result = await this.communicator.sendRequest('send_transaction', txData);
 
@@ -454,8 +556,29 @@ export class ZeroXIOWallet extends EventEmitter {
   async callContract(callData: ContractCallData): Promise<TransactionResult> {
     this.ensureConnected();
 
+    // validate inputs
+    if (!isValidAddress(callData.contract)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid contract address');
+    }
+    if (!callData.method || typeof callData.method !== 'string') {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract method is required');
+    }
+    // bound method + params size
+    if (callData.method.length > 200) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract method name too long (max 200 characters)');
+    }
     try {
-      this.logger.log('Calling contract:', callData);
+      if (JSON.stringify(callData.params).length > 65536) {
+        throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract params too large (max 64 KB)');
+      }
+    } catch (e) {
+      if (e instanceof ZeroXIOWalletError) throw e;
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract params are not serialisable');
+    }
+
+    try {
+      // log non-sensitive only
+      this.logger.log('Calling contract:', { contract: callData.contract, method: callData.method });
 
       const result = await this.communicator.sendRequest('call_contract', {
         contract: callData.contract,
@@ -489,14 +612,36 @@ export class ZeroXIOWallet extends EventEmitter {
   async contractCallView(viewData: ContractViewCallData): Promise<any> {
     this.ensureInitialized();
 
+    // validate inputs
+    if (!isValidAddress(viewData.contract)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid contract address');
+    }
+    if (!viewData.method || typeof viewData.method !== 'string') {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Contract method is required');
+    }
+    // bound method + params size
+    if (viewData.method.length > 200) {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Contract method name too long (max 200 characters)');
+    }
     try {
-      this.logger.log('Contract view call:', viewData);
+      if (JSON.stringify(viewData.params).length > 65536) {
+        throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Contract params too large (max 64 KB)');
+      }
+    } catch (e) {
+      if (e instanceof ZeroXIOWalletError) throw e;
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Contract params are not serialisable');
+    }
+
+    try {
+      // log non-sensitive only
+      this.logger.log('Contract view call:', { contract: viewData.contract, method: viewData.method });
 
       const result = await this.communicator.sendRequest('contract_call_view', {
         contract: viewData.contract,
         method: viewData.method,
         params: viewData.params,
-        caller: viewData.caller || this.getAddress() || '',
+        // only include caller if explicit
+        ...(viewData.caller != null ? { caller: viewData.caller } : {}),
       });
 
       this.logger.log('Contract view result:', result);
@@ -521,6 +666,17 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   async getContractStorage(contract: string, key: string): Promise<string | null> {
     this.ensureInitialized();
+
+    // validate inputs
+    if (!isValidAddress(contract)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid contract address');
+    }
+    if (!key || typeof key !== 'string') {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Storage key is required');
+    }
+    if (key.length > 200) {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Storage key too long (max 200 characters)');
+    }
 
     try {
       this.logger.log('Getting contract storage:', { contract, key });
@@ -593,8 +749,13 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * Encrypt public balance to private
    */
-  async encryptBalance(amount: number): Promise<boolean> {
+  async encryptBalance(amount: string | number): Promise<TransactionResult> {
     this.ensureConnected();
+
+    // validate amount
+    if (!isValidAmount(amount)) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid amount');
+    }
 
     try {
       const result = await this.communicator.sendRequest('encrypt_balance', { amount });
@@ -604,7 +765,7 @@ export class ZeroXIOWallet extends EventEmitter {
         this.getBalance(true).catch(() => { });
       }, 1000);
 
-      return result.success;
+      return result;
     } catch (error) {
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
@@ -617,8 +778,13 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * Decrypt private balance to public
    */
-  async decryptBalance(amount: number): Promise<boolean> {
+  async decryptBalance(amount: string | number): Promise<TransactionResult> {
     this.ensureConnected();
+
+    // validate amount
+    if (!isValidAmount(amount)) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid amount');
+    }
 
     try {
       const result = await this.communicator.sendRequest('decrypt_balance', { amount });
@@ -628,7 +794,7 @@ export class ZeroXIOWallet extends EventEmitter {
         this.getBalance(true).catch(() => { });
       }, 1000);
 
-      return result.success;
+      return result;
     } catch (error) {
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
@@ -648,6 +814,18 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   async sendPrivateTransfer(transferData: PrivateTransferData): Promise<TransactionResult> {
     this.ensureConnected();
+
+    // validate inputs
+    if (!isValidAddress(transferData.to)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid recipient address');
+    }
+    if (!isValidAmount(transferData.amount)) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transfer amount');
+    }
+    // bound msg size
+    if (transferData.message && transferData.message.length > 1000) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Transfer message too long (max 1,000 characters)');
+    }
 
     try {
       const result = await this.communicator.sendRequest('send_private_transfer', transferData);
@@ -695,6 +873,11 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   async claimPrivateTransfer(transferId: string): Promise<TransactionResult> {
     this.ensureConnected();
+
+    // validate transfer ID
+    if (!transferId || typeof transferId !== 'string') {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transfer ID');
+    }
 
     try {
       const result = await this.communicator.sendRequest('claim_private_transfer', {
@@ -777,6 +960,36 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   // ===================
+  // AUTHENTICATION HELPERS
+  // ===================
+
+  /**
+   * Sign a domain-separated authentication message.
+   * Unlike `signMessage()`, this prepends a standard header that binds the signature
+   * to the calling service and a one-time nonce, preventing cross-service replay attacks.
+   *
+   * @param service - Identifies the relying service (e.g. 'MyDApp' or 'api.mydapp.com')
+   * @param nonce   - Unique one-time value — use a server-generated UUID or challenge
+   * @returns Promise resolving to the base64-encoded Ed25519 signature
+   */
+  async signAuthMessage(service: string, nonce: string): Promise<string> {
+    this.ensureConnected();
+
+    if (!service || typeof service !== 'string') {
+      throw new ZeroXIOWalletError(ErrorCode.SIGNATURE_FAILED, 'Service name is required');
+    }
+    if (!nonce || typeof nonce !== 'string') {
+      throw new ZeroXIOWalletError(ErrorCode.SIGNATURE_FAILED, 'Nonce is required');
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'unknown';
+    const domainSeparated =
+      `0xio auth\nService: ${service}\nNonce: ${nonce}\nOrigin: ${origin}`;
+
+    return this.signMessage(domainSeparated);
+  }
+
+  // ===================
   // PRIVATE METHODS
   // ===================
 
@@ -832,23 +1045,33 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * Handle account changed event from extension
    */
-  private handleAccountChanged(data: { address: string; balance?: Balance }): void {
+  private handleAccountChanged(data: { address: string; balance?: Balance; publicKey?: string }): void {
+    ++this._sessionVersion;
     const previousAddress = this.connectionInfo.address;
 
     this.connectionInfo.address = data.address;
+    // clear stale pubkey on acct change
+    this.connectionInfo.publicKey = data.publicKey;
     if (data.balance) {
-      this.connectionInfo.balance = data.balance;
+      // validate balance before caching
+      const validated = validateBalance(data.balance);
+      if (validated) {
+        this.connectionInfo.balance = validated;
+      } else {
+        this.connectionInfo.balance = undefined;  // clear stale balance
+      }
     }
 
     const accountChangedEvent: AccountChangedEvent = {
       previousAddress,
       newAddress: data.address,
+      publicKey: data.publicKey,
       balance: data.balance ?? this.connectionInfo.balance!
     };
 
     this.emit('accountChanged', accountChangedEvent);
 
-    this.logger.log('Account changed:', accountChangedEvent);
+    this.logger.log('Account changed:', { newAddress: accountChangedEvent.newAddress });
   }
 
   /**
@@ -856,11 +1079,21 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   private handleNetworkChanged(data: { networkInfo: NetworkInfo }): void {
     const previousNetwork = this.connectionInfo.networkInfo;
-    this.connectionInfo.networkInfo = data.networkInfo;
+
+    // validate networkInfo — drop invalid
+    const networkInfo = validateNetworkInfo(data.networkInfo);
+    if (!networkInfo) {
+      this.logger.warn('Received invalid networkInfo in networkChanged event, ignoring');
+      return;
+    }
+    this.connectionInfo.networkInfo = networkInfo;
+
+    // invalidate balance on network change
+    this.connectionInfo.balance = undefined;
 
     const networkChangedEvent: NetworkChangedEvent = {
       previousNetwork,
-      newNetwork: data.networkInfo
+      newNetwork: networkInfo
     };
 
     this.emit('networkChanged', networkChangedEvent);
@@ -872,25 +1105,36 @@ export class ZeroXIOWallet extends EventEmitter {
    * Handle balance changed event from extension
    */
   private handleBalanceChanged(data: { balance: Balance }): void {
+    // validate balance before caching
+    const balance = validateBalance(data.balance);
+    if (!balance) {
+      this.logger.warn('Received invalid balance in balanceChanged event, ignoring');
+      return;
+    }
+
     const previousBalance = this.connectionInfo.balance;
-    this.connectionInfo.balance = data.balance;
+    this.connectionInfo.balance = balance;
 
     const balanceChangedEvent: BalanceChangedEvent = {
       address: this.connectionInfo.address!,
       previousBalance,
-      newBalance: data.balance
+      newBalance: balance
     };
 
     this.emit('balanceChanged', balanceChangedEvent);
 
-    this.logger.log('Balance changed:', balanceChangedEvent);
+    this.logger.log('Balance changed:', { public: balance.public });
   }
 
   /**
    * Handle extension locked event
    */
   private handleExtensionLocked(): void {
+    ++this._sessionVersion;
     this.connectionInfo = { isConnected: false };
+
+    // emit extensionLocked then disconnect
+    this.emit('extensionLocked', {});
 
     const disconnectEvent: DisconnectEvent = {
       reason: 'extension_locked'
@@ -905,6 +1149,9 @@ export class ZeroXIOWallet extends EventEmitter {
    * Handle extension unlocked event
    */
   private handleExtensionUnlocked(): void {
+    // emit extensionUnlocked
+    this.emit('extensionUnlocked', {});
+
     // Attempt to restore connection
     this.getConnectionStatus().catch(() => {
       this.logger.warn('Could not restore connection after unlock');
@@ -943,6 +1190,8 @@ export class ZeroXIOWallet extends EventEmitter {
     this.removeAllListeners();
     this.connectionInfo = { isConnected: false };
     this.isInitialized = false;
+    this._initPromise = null;
+    ++this._sessionVersion;
 
     this.logger.log('SDK cleanup complete');
   }

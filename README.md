@@ -1,8 +1,20 @@
 # 0xio Wallet SDK
 
-**Version:** 2.6.0
+**Version:** 2.7.0
 
 Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
+
+## What's New in v2.7.0
+
+Security hardening release (post-audit remediation):
+- **MessageChannel transport** (H-2 fix): Extension now uses a private `MessageChannel` port instead of `window.postMessage`, preventing page scripts from intercepting or injecting wallet messages. SDK validates a per-session nonce on every response.
+- **Pluggable wallet adapters**: New `src/supports/` system — implement `WalletTransportAdapter` and drop a file in `supports/` to add any wallet without touching core SDK code. See `src/supports/template.ts` for the starting point.
+- Fixed wildcard postMessage target leaking request payloads to any origin (HIGH)
+- Removed `Math.random()` fallback for request IDs — throws if `crypto` unavailable (MEDIUM)
+- Fixed `requestTimestamps` unbounded memory growth in idle tabs (LOW)
+- Removed all `octraWalletReady` legacy event listeners and `createOctraWallet` alias (LOW)
+- Extension fixes: balance/network events now delivered end-to-end; `accountChanged` on wallet switch; exact hostname tab matching; approval listener spoofing from content scripts blocked
+- All 17 post-audit findings resolved. See `AUDIT_REMEDIATION.md` for full details.
 
 ## What's New in v2.6.0
 
@@ -294,6 +306,38 @@ The SDK automatically detects when your DApp is running inside:
 - **0xio Wallet Extension** — Standard browser extension communication (unchanged).
 
 No code changes are needed for DApp developers. Just use the SDK as normal and it will auto-detect the environment and choose the correct transport.
+
+## Wallet Adapters
+
+The SDK ships with a pluggable adapter system so multiple wallets can be supported without changing core code.
+
+### Auto-detect
+
+```typescript
+import { detectWalletAdapter, ZeroXIOWallet } from '@0xio/sdk';
+
+const adapter = detectWalletAdapter();
+if (!adapter) throw new Error('No supported wallet found');
+
+const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter });
+```
+
+### Pass an adapter explicitly
+
+```typescript
+import { ZeroXIOWallet, ZeroXIOAdapter } from '@0xio/sdk';
+
+const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter: ZeroXIOAdapter });
+```
+
+### Add support for another wallet
+
+1. Copy `src/supports/template.ts` → `src/supports/my-wallet.ts`
+2. Fill in the four constants (`REQUEST_SOURCE`, `RESPONSE_SOURCE`, `WINDOW_KEY`, `READY_EVENT`) and the message-shape mapping
+3. Register it in `src/supports/index.ts` `REGISTERED_ADAPTERS`
+4. Export it from `src/index.ts` if you want it in the public API
+
+See `DOCUMENTATION.md → Wallet Adapter System` for the full interface spec.
 
 ## Requirements
 

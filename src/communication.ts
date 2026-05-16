@@ -6,7 +6,7 @@
  * to ensure secure wallet interactions.
  *
  * @module communication
- * @version 2.6.0
+ * @version 2.7.0
  * @license MIT
  */
 
@@ -16,37 +16,12 @@ import {
   ErrorCode,
   ZeroXIOWalletError
 } from './types';
+import type { WalletTransportAdapter } from './adapter';
+import { createZeroXIOAdapter } from './supports/0xio';
 import { retry, withTimeout, createLogger } from './utils';
 import { EventEmitter } from './events';
 
-/**
- * ExtensionCommunicator - Manages communication with the 0xio Wallet browser extension
- *
- * @class
- * @extends EventEmitter
- *
- * @description
- * Handles all communication between the SDK and wallet extension including:
- * - Request/response message passing with origin validation
- * - Rate limiting to prevent DoS attacks
- * - Automatic retry logic with exponential backoff
- * - Extension detection and availability monitoring
- * - Cryptographically secure request ID generation
- *
- * @example
- * ```typescript
- * const communicator = new ExtensionCommunicator(true); // debug mode
- * await communicator.initialize();
- *
- * const response = await communicator.sendRequest('get_balance', {});
- * console.log(response);
- * ```
- */
 export class ExtensionCommunicator extends EventEmitter {
-  /** Legacy request counter (deprecated, kept for fallback) */
-  private requestId = 0;
-
-  /** Map of pending requests awaiting responses */
   private pendingRequests = new Map<string, {
     resolve: (value: any) => void;
     reject: (error: Error) => void;
@@ -54,93 +29,62 @@ export class ExtensionCommunicator extends EventEmitter {
     retryCount: number;
   }>();
 
-  /** Initialization state flag */
   private isInitialized = false;
-
-  /** Logger instance for debugging */
   private logger: ReturnType<typeof createLogger>;
-
-  /** Interval handle for periodic extension detection */
   private extensionDetectionInterval: ReturnType<typeof setInterval> | null = null;
-
-  /** Current extension availability state */
   private isExtensionAvailableState = false;
-
-  /** Message listener reference for cleanup */
-  private messageListener: ((event: MessageEvent) => void) | null = null;
-
-  /** Trusted parent origins for iframe communication */
   private trustedOrigins: string[] = [];
-  /** Parent origin learned from walletReady signal */
   private _parentOrigin: string | null = null;
 
-  // Rate limiting configuration
-  /** Maximum number of concurrent pending requests */
-  private readonly MAX_CONCURRENT_REQUESTS = 50;
-
-  /** Time window for rate limiting (milliseconds) */
-  private readonly RATE_LIMIT_WINDOW = 1000;
-
-  /** Maximum requests allowed per time window */
-  private readonly MAX_REQUESTS_PER_WINDOW = 20;
-
-  /** Timestamps of recent requests for rate limiting */
-  private requestTimestamps: number[] = [];
+  /** Pluggable transport — defaults to the 0xio postMessage protocol. */
+  private adapter: WalletTransportAdapter;
+  /** Teardown fn returned by adapter.listen() */
+  private _adapterTeardown: (() => void) | null = null;
+  /** Teardown fn returned by adapter.listenForReady() */
+  private _adapterReadyTeardown: (() => void) | null = null;
 
   /**
-   * Creates a new ExtensionCommunicator instance
-   *
-   * @param {boolean} debug - Enable debug logging
+   * Set when a trusted walletReady has been received from window.parent.
+   * The polling fallback must NOT clear this flag.
    */
-  constructor(debug = false, trustedOrigins: string[] = []) {
+  private _parentTrusted = false;
+
+  /** walletReady postMessage listener stored for cleanup */
+  private _walletReadyMessageListener: ((e: MessageEvent) => void) | null = null;
+
+  /**
+   * In-flight interactive request lock.
+   * Methods that open approval popups are serialized — only one at a time.
+   */
+  private _interactiveInFlight = false;
+
+  private readonly MAX_CONCURRENT_REQUESTS = 50;
+  private readonly RATE_LIMIT_WINDOW = 1000;
+  private readonly MAX_REQUESTS_PER_WINDOW = 20;
+  private requestTimestamps: number[] = [];
+
+  constructor(debug = false, trustedOrigins: string[] = [], adapter?: WalletTransportAdapter) {
     super(debug);
     this.logger = createLogger('ExtensionCommunicator', debug);
     this.trustedOrigins = trustedOrigins;
+    this.adapter = adapter ?? createZeroXIOAdapter(trustedOrigins);
     this.setupMessageListener();
     this.startExtensionDetection();
   }
 
-  /**
-   * Add trusted origins for iframe/bridge communication
-   * Call this before connecting if your dApp runs inside a trusted frame
-   */
   setTrustedOrigins(origins: string[]): void {
     this.trustedOrigins = origins;
   }
 
-  /**
-   * Initialize communication with the wallet extension
-   *
-   * @description
-   * Performs initial setup and verification:
-   * 1. Waits for extension to become available
-   * 2. Sends ping to verify communication
-   * 3. Establishes message handlers
-   *
-   * Must be called before any other methods.
-   *
-   * @returns {Promise<boolean>} True if initialization succeeded, false otherwise
-   * @throws {ZeroXIOWalletError} If extension is not available after timeout
-   *
-   * @example
-   * ```typescript
-   * const success = await communicator.initialize();
-   * if (!success) {
-   *   console.error('Failed to initialize wallet connection');
-   * }
-   * ```
-   */
   async initialize(): Promise<boolean> {
     if (this.isInitialized) {
       return true;
     }
 
     try {
-      // Wait for extension detection with timeout
       const available = await this.waitForExtensionAvailability(10000);
 
       if (available) {
-        // Verify with ping
         await withTimeout(
           this.sendRequestWithRetry('ping', {}, 3, 2000),
           8000,
@@ -160,25 +104,21 @@ export class ExtensionCommunicator extends EventEmitter {
     }
   }
 
-  /**
-   * Check if extension is available
-   */
   isExtensionAvailable(): boolean {
     return this.isExtensionAvailableState && this.hasExtensionContext();
   }
 
-  // Methods that trigger user-facing popups — NEVER retry these
+  // Methods that trigger user-facing popups — NEVER retry these.
   // Retrying sends a second request while the first popup is still open,
-  // causing double popups where the second tx fails (stale nonce/state)
+  // causing double popups where the second tx fails (stale nonce/state).
   private static readonly NO_RETRY_METHODS = new Set([
     'connect', 'send_transaction', 'call_contract', 'signMessage',
     'send_private_transfer', 'claim_private_transfer',
     'encrypt_balance', 'decrypt_balance',
   ]);
 
-  /**
-   * Send request to extension
-   */
+  private static readonly INTERACTIVE_METHODS = ExtensionCommunicator.NO_RETRY_METHODS;
+
   async sendRequest<T = any>(
     method: string,
     params: any = {},
@@ -186,14 +126,10 @@ export class ExtensionCommunicator extends EventEmitter {
   ): Promise<T> {
     const isInteractive = ExtensionCommunicator.NO_RETRY_METHODS.has(method);
     const maxRetries = isInteractive ? 0 : 1;
-    // Give users 3 minutes for interactive approvals (review + sign + FHE proof generation)
     const effectiveTimeout = isInteractive ? Math.max(timeout, 180000) : timeout;
     return this.sendRequestWithRetry(method, params, maxRetries, effectiveTimeout);
   }
 
-  /**
-   * Send request to extension with automatic retry logic
-   */
   async sendRequestWithRetry<T = any>(
     method: string,
     params: any = {},
@@ -204,158 +140,131 @@ export class ExtensionCommunicator extends EventEmitter {
       throw new ZeroXIOWalletError(
         ErrorCode.EXTENSION_NOT_FOUND,
         '0xio Wallet extension is not installed or available',
-        {
-          method,
-          params,
-          browserContext: this.getBrowserDiagnostics()
-        }
+        { method, browserContext: this.getBrowserDiagnostics() }
       );
     }
 
     if (!this.isExtensionAvailableState) {
-      // Wait a bit for extension to become available
       await this.waitForExtensionAvailability(5000);
 
       if (!this.isExtensionAvailableState) {
         throw new ZeroXIOWalletError(
           ErrorCode.EXTENSION_NOT_FOUND,
           'Extension not available for communication',
-          {
-            method,
-            params,
-            extensionState: this.getExtensionDiagnostics()
-          }
+          { method, extensionState: this.getExtensionDiagnostics() }
         );
       }
     }
 
-    // ✅ SECURITY: Check rate limits before processing
+    // Enforce one-at-a-time for interactive popup methods
+    const isInteractive = ExtensionCommunicator.INTERACTIVE_METHODS.has(method);
+    if (isInteractive) {
+      if (this._interactiveInFlight) {
+        throw new ZeroXIOWalletError(
+          ErrorCode.RATE_LIMIT_EXCEEDED,
+          'Another approval popup is already open. Please wait for it to complete.'
+        );
+      }
+      this._interactiveInFlight = true;
+    }
+
     this.checkRateLimit();
 
-    return retry(async () => {
-      const requestId = this.generateRequestId();
-      const request: ExtensionRequest = {
-        id: requestId,
-        method,
-        params,
-        timestamp: Date.now()
-      };
+    try {
+      return await retry(async () => {
+        const requestId = this.generateRequestId();
+        const request: ExtensionRequest = {
+          id: requestId,
+          method,
+          params,
+          timestamp: Date.now()
+        };
 
-      this.logger.log(`Sending request (${method}):`, { id: requestId, params });
+        this.logger.log(`Sending request (${method}):`, { id: requestId });
 
-      return new Promise<T>((resolve, reject) => {
-        // Set up timeout
-        const timeoutHandle = setTimeout(() => {
-          const pending = this.pendingRequests.get(requestId);
-          if (pending) {
+        return new Promise<T>((resolve, reject) => {
+          const timeoutHandle = setTimeout(() => {
+            const pending = this.pendingRequests.get(requestId);
+            if (pending) {
+              this.pendingRequests.delete(requestId);
+              reject(new ZeroXIOWalletError(
+                ErrorCode.NETWORK_ERROR,
+                `Request timeout after ${timeout}ms`,
+                { method, requestId, retryCount: pending.retryCount }
+              ));
+            }
+          }, timeout);
+
+          this.pendingRequests.set(requestId, {
+            resolve,
+            reject,
+            timeout: timeoutHandle,
+            retryCount: 0
+          });
+
+          // Wrap postMessage so a DataCloneError cleans up the pending entry
+          try {
+            this.postMessageToExtension(request);
+          } catch (cloneErr) {
+            clearTimeout(timeoutHandle);
             this.pendingRequests.delete(requestId);
             reject(new ZeroXIOWalletError(
-              ErrorCode.NETWORK_ERROR,
-              `Request timeout after ${timeout}ms`,
-              {
-                method,
-                params,
-                requestId,
-                retryCount: pending.retryCount,
-                extensionState: this.getExtensionDiagnostics()
-              }
+              ErrorCode.UNKNOWN_ERROR,
+              'Request params are not serializable',
+              { method, requestId }
             ));
           }
-        }, timeout);
-
-        // Store request handlers
-        this.pendingRequests.set(requestId, {
-          resolve,
-          reject,
-          timeout: timeoutHandle,
-          retryCount: 0
         });
-
-        // Send message to extension via content script bridge
-        this.postMessageToExtension(request);
-      });
-    }, maxRetries, 1000);
+      }, maxRetries, 1000);
+    } finally {
+      if (isInteractive) {
+        this._interactiveInFlight = false;
+      }
+    }
   }
 
-  /**
-   * Setup message listener for responses from extension
-   */
   private setupMessageListener(): void {
-    if (typeof window === 'undefined') {
-      return; // Not in browser environment
-    }
+    if (typeof window === 'undefined') return;
 
-    const allowedOrigin = window.location.origin;
-
-    // Store allowed origins for parent frame communication
-    // Desktop (Tauri): tauri://localhost or https://tauri.localhost
-    // Mobile (Expo): about:blank or custom scheme
-    const trustedParentOrigins = new Set([
-      allowedOrigin,
-      'tauri://localhost',
-      'https://tauri.localhost',
-      'http://localhost',
-      'https://localhost',
-    ]);
-
-    // Allow dApps to register additional trusted origins
-    if (this.trustedOrigins) {
-      for (const origin of this.trustedOrigins) {
-        trustedParentOrigins.add(origin);
-      }
-    }
-
-    this.messageListener = (event: MessageEvent) => {
-      // Strict origin validation
-      const isFromSameOrigin = event.origin === allowedOrigin;
-      const isLocalhost = event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:');
-      const isFromTrustedParent = event.source === window.parent
-        && window.parent !== window
-        && (trustedParentOrigins.has(event.origin) || isLocalhost);
-
-      if (!isFromSameOrigin && !isFromTrustedParent) {
-        return;
-      }
-
-      // Only accept from same window (extension content script) or trusted parent frame
-      if (event.source !== window && event.source !== window.parent) {
-        return;
-      }
-
-      // Verify message structure
-      if (!event.data || event.data.source !== '0xio-sdk-bridge') {
-        return;
-      }
-
-      // Validate response has a pending request (prevents forged responses)
-      if (event.data.response) {
-        const response = event.data.response as ExtensionResponse;
-        if (response && response.id && this.pendingRequests.has(response.id)) {
-          this.handleExtensionResponse(response);
+    this._adapterTeardown = this.adapter.listen(
+      (msg) => {
+        if (msg.requestId !== undefined) {
+          // response — map AdapterIncomingMessage → ExtensionResponse shape
+          if (this.pendingRequests.has(msg.requestId)) {
+            this.handleExtensionResponse({
+              id: msg.requestId,
+              success: msg.success ?? false,
+              data: msg.data,
+              error: msg.error as any,
+              timestamp: Date.now(),
+            });
+          }
+        } else if (msg.eventType) {
+          this.handleExtensionEvent({ type: msg.eventType, data: msg.eventData });
         }
-      } else if (event.data.event) {
-        this.handleExtensionEvent(event.data.event);
-      }
-    };
+      },
+      { trustedParentOrigins: this.trustedOrigins }
+    );
 
-    window.addEventListener('message', this.messageListener);
-
-    this.logger.log('Message listener setup complete');
+    this.logger.log(`Message listener setup complete (adapter: ${this.adapter.name})`);
   }
 
-  /**
-   * Handle extension event
-   */
-  private handleExtensionEvent(event: any): void {
-    this.logger.log('Received extension event:', event.type);
+  // only forward known event types
+  private static readonly VALID_EVENT_TYPES = new Set<string>([
+    'connect', 'disconnect', 'accountChanged', 'balanceChanged',
+    'networkChanged', 'transactionConfirmed', 'error',
+    'extensionLocked', 'extensionUnlocked'
+  ]);
 
-    // Forward the event to listeners
+  private handleExtensionEvent(event: any): void {
+    if (!event?.type || !ExtensionCommunicator.VALID_EVENT_TYPES.has(event.type)) {
+      this.logger.warn(`Received unknown event type from bridge: ${event?.type}`);
+      return;
+    }
+    this.logger.log('Received extension event:', event.type);
     this.emit(event.type, event.data);
   }
 
-  /**
-   * Handle response from extension
-   */
   private handleExtensionResponse(response: ExtensionResponse): void {
     this.logger.log(`Received response:`, { id: response.id, success: response.success });
 
@@ -365,93 +274,57 @@ export class ExtensionCommunicator extends EventEmitter {
       return;
     }
 
-    // Clear timeout and remove from pending
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(response.id);
 
-    // Handle response
-    if (response.success) {
+    // Require strict boolean true — "false" string or other truthy values are failures
+    if (response.success === true) {
       pending.resolve(response.data);
     } else {
       const error = response.error;
       if (error) {
+        // Handle both object {code, message} and legacy plain-string error formats
+        const isObj = error !== null && typeof error === 'object';
+        const code: ErrorCode = isObj && error.code ? error.code : ErrorCode.UNKNOWN_ERROR;
+        const message: string = isObj
+          ? (error.message ?? 'Unknown error')
+          : (typeof error === 'string' ? error : 'Unknown error');
         const enhancedError = new ZeroXIOWalletError(
-          error.code,
-          error.message,
-          {
-            ...error.details,
-            requestId: response.id,
-            retryCount: pending.retryCount,
-            timestamp: Date.now(),
-            extensionState: this.getExtensionDiagnostics()
-          }
+          code,
+          message,
+          // Redact bridge-supplied error details; only keep non-sensitive metadata
+          { requestId: response.id, retryCount: pending.retryCount, timestamp: Date.now() }
         );
         pending.reject(enhancedError);
       } else {
         pending.reject(new ZeroXIOWalletError(
           ErrorCode.UNKNOWN_ERROR,
           'Unknown error occurred',
-          {
-            requestId: response.id,
-            retryCount: pending.retryCount,
-            extensionState: this.getExtensionDiagnostics()
-          }
+          { requestId: response.id, retryCount: pending.retryCount }
         ));
       }
     }
   }
 
-  /**
-   * Post message to extension via content script
-   */
   private postMessageToExtension(request: ExtensionRequest): void {
-    const msg = { source: '0xio-sdk-request', request };
-    // Post to same window (extension content script picks it up)
-    window.postMessage(msg, window.location.origin);
-    // Also post to parent frame if in an iframe (desktop/mobile bridge)
-    if (window.parent !== window) {
-      // Use the parent origin we learned from the walletReady signal, or wildcard
-      // Response validation is done by request ID matching, not origin
-      const parentOrigin = this._parentOrigin || '*';
-      try {
-        window.parent.postMessage(msg, parentOrigin);
-      } catch {
-        // Fallback to wildcard if specific origin fails
-        try { window.parent.postMessage(msg, '*'); } catch {}
+    this.adapter.postRequest(request);
+    // Parent bridge (iframe/desktop mode) — only when a trusted origin is established.
+    // Sending with '*' would leak method + params to any intercepting frame.
+    if (window.parent !== window && this._parentOrigin) {
+      if (this.adapter.postRequestToParent) {
+        this.adapter.postRequestToParent(request, this._parentOrigin);
       }
     }
   }
 
-  /**
-   * Check if we're in a context that can communicate with extension
-   */
   private hasExtensionContext(): boolean {
     return typeof window !== 'undefined' &&
       typeof window.postMessage === 'function';
   }
 
-  /**
-   * Check and enforce rate limits to prevent denial-of-service attacks
-   *
-   * @private
-   * @throws {ZeroXIOWalletError} RATE_LIMIT_EXCEEDED if limits are exceeded
-   *
-   * @description
-   * Implements two-tier rate limiting:
-   * 1. Concurrent requests: Maximum 50 pending requests at once
-   * 2. Request frequency: Maximum 20 requests per second
-   *
-   * Rate limiting protects both the SDK and extension from:
-   * - Accidental infinite loops in dApp code
-   * - Malicious DoS attacks
-   * - Resource exhaustion
-   *
-   * @security Critical security function - enforces resource limits
-   */
   private checkRateLimit(): void {
     const now = Date.now();
 
-    // ✅ SECURITY: Check concurrent request limit
     if (this.pendingRequests.size >= this.MAX_CONCURRENT_REQUESTS) {
       throw new ZeroXIOWalletError(
         ErrorCode.RATE_LIMIT_EXCEEDED,
@@ -459,10 +332,13 @@ export class ExtensionCommunicator extends EventEmitter {
       );
     }
 
-    // ✅ SECURITY: Check requests per time window
+    // Trim expired timestamps — cap array size to prevent unbounded growth in idle tabs
     this.requestTimestamps = this.requestTimestamps.filter(
       t => now - t < this.RATE_LIMIT_WINDOW
     );
+    if (this.requestTimestamps.length > this.MAX_REQUESTS_PER_WINDOW) {
+      this.requestTimestamps = this.requestTimestamps.slice(-this.MAX_REQUESTS_PER_WINDOW);
+    }
 
     if (this.requestTimestamps.length >= this.MAX_REQUESTS_PER_WINDOW) {
       throw new ZeroXIOWalletError(
@@ -474,111 +350,90 @@ export class ExtensionCommunicator extends EventEmitter {
     this.requestTimestamps.push(now);
   }
 
-  /**
-   * Generate cryptographically secure unique request ID
-   *
-   * @private
-   * @returns {string} A unique, unpredictable request identifier
-   *
-   * @description
-   * Uses Web Crypto API for secure random ID generation:
-   * 1. Primary: crypto.randomUUID() - UUID v4 format
-   * 2. Fallback: crypto.getRandomValues() - 128-bit random hex
-   * 3. Last resort: timestamp + counter (logs warning)
-   *
-   * Security importance:
-   * - Prevents request ID prediction attacks
-   * - Mitigates replay attacks
-   * - Makes session hijacking more difficult
-   *
-   * @security Critical - IDs must be cryptographically unpredictable
-   */
   private generateRequestId(): string {
-    // ✅ SECURITY: Use crypto.randomUUID() for secure, unpredictable IDs
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
       return `0xio-sdk-${crypto.randomUUID()}`;
     }
-
-    // Fallback to crypto.getRandomValues for older browsers
     if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
       const array = new Uint8Array(16);
       crypto.getRandomValues(array);
       const hex = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
       return `0xio-sdk-${hex}`;
     }
-
-    // Last resort fallback (not recommended for production)
-    this.logger.warn('Crypto API not available, using less secure ID generation');
-    return `0xio-sdk-${++this.requestId}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    // Crypto API unavailable — throw rather than produce a guessable ID that
+    // could allow response spoofing via a known requestId.
+    throw new ZeroXIOWalletError(
+      ErrorCode.UNKNOWN_ERROR,
+      'Cryptographic random number generation is not available in this environment'
+    );
   }
 
-  /**
-   * Start continuous extension detection
-   */
   private startExtensionDetection(): void {
     if (typeof window === 'undefined') return;
 
-    // Listen for extension ready event (instant detection)
-    window.addEventListener('0xioWalletReady', () => {
-      this.logger.log('Received 0xioWalletReady event');
-      this.isExtensionAvailableState = true;
-    });
+    // Adapter-provided wallet-ready events (e.g. '0xioWalletReady', 'exampleWalletReady')
+    if (this.adapter.listenForReady) {
+      this._adapterReadyTeardown = this.adapter.listenForReady(() => {
+        this.logger.log(`Received wallet-ready event (adapter: ${this.adapter.name})`);
+        this.isExtensionAvailableState = true;
+      });
+    }
 
-    // Also listen for legacy event names
-    window.addEventListener('wallet0xioReady', () => {
-      this.logger.log('Received wallet0xioReady event');
-      this.isExtensionAvailableState = true;
-    });
-
-    window.addEventListener('octraWalletReady', () => {
-      this.logger.log('Received octraWalletReady event');
-      this.isExtensionAvailableState = true;
-    });
-
-    // Listen for desktop/mobile bridge walletReady via postMessage (with origin validation)
-    window.addEventListener('message', (event) => {
-      if (event.data?.source === '0xio-sdk-bridge' && event.data?.event?.type === 'walletReady') {
-        const isSameOrigin = event.origin === window.location.origin;
-        const isLocalhost = event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:');
-        const isTauri = event.origin === 'tauri://localhost' || event.origin === 'https://tauri.localhost';
-        const isTrusted = this.trustedOrigins.includes(event.origin) || isTauri || isLocalhost;
-        if (isSameOrigin || isTrusted) {
-          this.logger.log('Received walletReady via postMessage from trusted origin');
-          this.isExtensionAvailableState = true;
-          // Capture parent origin for cross-origin reply targeting
-          if (event.data.parentOrigin) {
-            this._parentOrigin = event.data.parentOrigin;
-          } else if (event.origin && event.origin !== 'null') {
-            this._parentOrigin = event.origin;
-          }
-        } else {
-          this.logger.warn(`Ignored walletReady from untrusted origin: ${event.origin}`);
-        }
+    // walletReady via postMessage (desktop/mobile iframe bridge) — store ref for cleanup
+    this._walletReadyMessageListener = (event: MessageEvent) => {
+      if (event.data?.source !== '0xio-sdk-bridge' || event.data?.event?.type !== 'walletReady') {
+        return;
       }
-    });
 
-    // If running inside a frame, do NOT auto-trust the parent.
-    // Wait for a walletReady message from a trusted origin instead.
+      const isSameOrigin = event.origin === window.location.origin;
+      const isLocalhost = event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:');
+      const isTauri = event.origin === 'tauri://localhost' || event.origin === 'https://tauri.localhost';
+      const isTrustedOrigin = this.trustedOrigins.includes(event.origin) || isTauri || isLocalhost;
+
+      // In iframe mode, only trust the actual parent window
+      const inIframe = window.parent !== window;
+      if (inIframe && event.source !== window.parent) {
+        this.logger.warn(`Ignored walletReady from non-parent source in iframe mode`);
+        return;
+      }
+
+      if (isSameOrigin || isTrustedOrigin) {
+        this.logger.log('Received walletReady via postMessage from trusted origin');
+        this.isExtensionAvailableState = true;
+        this._parentTrusted = true; // Mark parent-bridge readiness separately
+
+        if (event.data.parentOrigin) {
+          this._parentOrigin = event.data.parentOrigin;
+        } else if (event.origin && event.origin !== 'null') {
+          this._parentOrigin = event.origin;
+        }
+      } else {
+        this.logger.warn(`Ignored walletReady from untrusted origin: ${event.origin}`);
+      }
+    };
+
+    window.addEventListener('message', this._walletReadyMessageListener);
+
     if (window.parent !== window) {
       this.logger.log('Running inside a frame — waiting for trusted walletReady signal');
     }
 
-    // Initial check (in case extension was already injected)
     this.checkExtensionAvailability();
 
-    // Set up periodic checks as fallback
     this.extensionDetectionInterval = setInterval(() => {
       this.checkExtensionAvailability();
     }, 2000);
   }
 
-  /**
-   * Check if extension is currently available
-   */
   private checkExtensionAvailability(): void {
-    const wasAvailable = this.isExtensionAvailableState;
+    // If parent-bridge readiness was established via a trusted walletReady handshake,
+    // preserve that state — the polling fallback (detectExtensionSignals) does not
+    // consider the iframe parent signal and would incorrectly flip state back
+    if (this._parentTrusted) {
+      return;
+    }
 
-    // Basic checks for extension context
+    const wasAvailable = this.isExtensionAvailableState;
     this.isExtensionAvailableState = this.hasExtensionContext() && this.detectExtensionSignals();
 
     if (!wasAvailable && this.isExtensionAvailableState) {
@@ -588,29 +443,10 @@ export class ExtensionCommunicator extends EventEmitter {
     }
   }
 
-  /**
-   * Detect extension signals/indicators
-   */
   private detectExtensionSignals(): boolean {
-    if (typeof window === 'undefined') return false;
-
-    // Check for extension-injected indicators
-    const win = window as any;
-
-    // Look for extension-injected globals (matches injected.ts)
-    return !!(
-      win.wallet0xio ||
-      win.ZeroXIOWallet ||
-      win.octraWallet ||
-      (win.chrome?.runtime?.id) ||
-      document.querySelector('meta[name="0xio-dapp"]') ||
-      document.querySelector('[data-0xio-sdk-bridge]')
-    );
+    return this.adapter.detect();
   }
 
-  /**
-   * Wait for extension to become available
-   */
   private async waitForExtensionAvailability(timeoutMs: number): Promise<boolean> {
     if (this.isExtensionAvailableState) {
       return true;
@@ -619,16 +455,13 @@ export class ExtensionCommunicator extends EventEmitter {
     return new Promise((resolve) => {
       let resolved = false;
       const startTime = Date.now();
+      let adapterReadyTeardown: (() => void) | null = null;
 
-      // Cleanup function
       const cleanup = () => {
         clearInterval(checkInterval);
-        window.removeEventListener('0xioWalletReady', onReady);
-        window.removeEventListener('wallet0xioReady', onReady);
-        window.removeEventListener('octraWalletReady', onReady);
+        adapterReadyTeardown?.();
       };
 
-      // Event handler for instant resolution
       const onReady = () => {
         if (resolved) return;
         resolved = true;
@@ -637,12 +470,11 @@ export class ExtensionCommunicator extends EventEmitter {
         resolve(true);
       };
 
-      // Listen for extension ready events
-      window.addEventListener('0xioWalletReady', onReady);
-      window.addEventListener('wallet0xioReady', onReady);
-      window.addEventListener('octraWalletReady', onReady);
+      // Use adapter's listenForReady for fast resolution; polling is the fallback
+      if (this.adapter.listenForReady) {
+        adapterReadyTeardown = this.adapter.listenForReady(onReady);
+      }
 
-      // Polling fallback with shorter interval
       const checkInterval = setInterval(() => {
         if (resolved) return;
 
@@ -662,14 +494,10 @@ export class ExtensionCommunicator extends EventEmitter {
     });
   }
 
-  /**
-   * Get browser diagnostics for error reporting
-   */
   private getBrowserDiagnostics(): any {
     if (typeof window === 'undefined') {
       return { environment: 'non-browser' };
     }
-
     const win = window as any;
     return {
       userAgent: navigator.userAgent,
@@ -677,31 +505,23 @@ export class ExtensionCommunicator extends EventEmitter {
       hasChromeRuntime: !!(win.chrome?.runtime),
       hasPostMessage: typeof window.postMessage === 'function',
       origin: window.location?.origin,
-      extensionDetection: {
-        hasWallet0xio: !!win.wallet0xio,
-        hasZeroXIOWallet: !!win.ZeroXIOWallet,
-        hasOctraWallet: !!win.octraWallet,
-        hasChromeRuntimeId: !!(win.chrome?.runtime?.id),
-        hasSdkBridge: !!document.querySelector('[data-0xio-sdk-bridge]')
-      }
     };
   }
 
-  /**
-   * Get extension state diagnostics
-   */
   private getExtensionDiagnostics(): any {
     return {
       initialized: this.isInitialized,
       available: this.isExtensionAvailableState,
+      parentTrusted: this._parentTrusted,
       pendingRequests: this.pendingRequests.size,
       hasExtensionContext: this.hasExtensionContext(),
-      browserDiagnostics: this.getBrowserDiagnostics()
     };
   }
 
   /**
-   * Cleanup pending requests
+   * Clean up SDK resources.
+   * After cleanup() the instance is terminal — do not call initialize() again.
+   * Construct a new instance instead.
    */
   cleanup(): void {
     if (this.extensionDetectionInterval) {
@@ -711,31 +531,31 @@ export class ExtensionCommunicator extends EventEmitter {
 
     for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
-      pending.reject(new ZeroXIOWalletError(
-        ErrorCode.UNKNOWN_ERROR,
-        'SDK cleanup called'
-      ));
+      pending.reject(new ZeroXIOWalletError(ErrorCode.UNKNOWN_ERROR, 'SDK cleanup called'));
     }
-
     this.pendingRequests.clear();
     this.isInitialized = false;
     this.isExtensionAvailableState = false;
+    this._parentTrusted = false;
+    this._parentOrigin = null;
+    this._interactiveInFlight = false;
 
-    // Remove message listener to prevent accumulation
-    if (this.messageListener) {
-      window.removeEventListener('message', this.messageListener);
-      this.messageListener = null;
+    // Tear down adapter listeners (response/event + wallet-ready)
+    this._adapterTeardown?.();
+    this._adapterTeardown = null;
+    this._adapterReadyTeardown?.();
+    this._adapterReadyTeardown = null;
+
+    // Remove walletReady postMessage listener (parent iframe bridge)
+    if (typeof window !== 'undefined' && this._walletReadyMessageListener) {
+      window.removeEventListener('message', this._walletReadyMessageListener);
+      this._walletReadyMessageListener = null;
     }
 
-    // Call parent cleanup
     this.removeAllListeners();
-
     this.logger.log('Communication cleanup complete');
   }
 
-  /**
-   * Get debug information
-   */
   getDebugInfo(): {
     initialized: boolean;
     available: boolean;

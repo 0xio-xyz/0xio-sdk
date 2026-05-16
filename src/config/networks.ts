@@ -4,7 +4,7 @@
 
 import { NetworkInfo, ErrorCode, ZeroXIOWalletError } from '../types';
 
-export const NETWORKS: Record<string, NetworkInfo> = {
+const _NETWORKS: Record<string, NetworkInfo> = {
   'mainnet': {
     id: 'mainnet',
     name: 'Octra Mainnet',
@@ -40,29 +40,61 @@ export const NETWORKS: Record<string, NetworkInfo> = {
   }
 };
 
+/**
+ * Immutable public copy of the built-in network table.
+ * Modifications to returned objects do not affect SDK-internal state.
+ */
+export const NETWORKS: Readonly<Record<string, Readonly<NetworkInfo>>> = Object.freeze(
+  Object.fromEntries(Object.entries(_NETWORKS).map(([k, v]) => [k, Object.freeze({ ...v })]))
+);
+
 export const DEFAULT_NETWORK_ID = 'mainnet';
 
 /**
- * Get network configuration by ID
+ * Get network configuration by ID.
+ * Returns a frozen copy — callers cannot mutate SDK-internal state.
  */
 export function getNetworkConfig(networkId: string = DEFAULT_NETWORK_ID): NetworkInfo {
-  const network = NETWORKS[networkId];
-  if (!network) {
+  if (!Object.prototype.hasOwnProperty.call(_NETWORKS, networkId)) {
     throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, `Unknown network ID: ${networkId}`);
   }
-  return network;
+  return Object.freeze({ ..._NETWORKS[networkId] });
 }
 
 /**
- * Get all available networks
+ * Get all available networks.
+ * Returns frozen copies — callers cannot mutate SDK-internal state.
  */
 export function getAllNetworks(): NetworkInfo[] {
-  return Object.values(NETWORKS);
+  return Object.values(_NETWORKS).map(n => Object.freeze({ ...n }));
 }
 
 /**
- * Check if network ID is valid
+ * Check if network ID is valid (own property check, prevents prototype pollution).
  */
 export function isValidNetworkId(networkId: string): boolean {
-  return networkId in NETWORKS;
+  return typeof networkId === 'string' && Object.prototype.hasOwnProperty.call(_NETWORKS, networkId);
+}
+
+/**
+ * Validate a NetworkInfo shape from an untrusted source (bridge response).
+ * Returns a frozen copy if valid, null otherwise.
+ */
+export function validateNetworkInfo(raw: any): NetworkInfo | null {
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.id !== 'string' || !raw.id) return null;
+  if (typeof raw.name !== 'string') return null;
+  if (typeof raw.rpcUrl !== 'string' || (!raw.rpcUrl && raw.id !== 'custom')) return null;
+  if (typeof raw.supportsPrivacy !== 'boolean') return null;
+  return Object.freeze({
+    id: raw.id,
+    name: raw.name,
+    rpcUrl: raw.rpcUrl,
+    explorerUrl: typeof raw.explorerUrl === 'string' ? raw.explorerUrl : undefined,
+    explorerAddressUrl: typeof raw.explorerAddressUrl === 'string' ? raw.explorerAddressUrl : undefined,
+    indexerUrl: typeof raw.indexerUrl === 'string' ? raw.indexerUrl : undefined,
+    supportsPrivacy: raw.supportsPrivacy,
+    color: typeof raw.color === 'string' ? raw.color : '#64748b',
+    isTestnet: typeof raw.isTestnet === 'boolean' ? raw.isTestnet : false,
+  } as NetworkInfo);
 }

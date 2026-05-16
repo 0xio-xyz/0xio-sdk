@@ -10,6 +10,7 @@
 - [Core Concepts](#core-concepts)
 - [API Reference](#api-reference)
 - [Advanced Usage](#advanced-usage)
+- [Wallet Adapter System](#wallet-adapter-system)
 - [Framework Integration](#framework-integration)
 - [Error Handling](#error-handling)
 - [Security](#security)
@@ -40,10 +41,11 @@ DApp (Your Application)
 0xio SDK (@0xio/sdk)
     ↓
 ┌─────────────────────────────────────────────┐
-│  Transport (auto-detected)                  │
-│  ├─ Extension: postMessage to content script│
-│  ├─ Desktop:   postMessage to window.parent │
-│  └─ Mobile:    postMessage to WebView bridge│
+│  WalletTransportAdapter (pluggable)         │
+│  ├─ ZeroXIOAdapter  (built-in)              │
+│  │   ├─ Extension: MessageChannel port      │
+│  │   └─ iframe:    postMessage to parent    │
+│  └─ CustomAdapter  (src/supports/my-wallet) │
 └─────────────────────────────────────────────┘
     ↓
 Octra Network
@@ -1015,6 +1017,134 @@ if (process.env.NODE_ENV === 'development') {
   console.log(window.__ZEROXIO_SDK_UTILS__.getSDKInfo());
 }
 ```
+
+---
+
+## Wallet Adapter System
+
+The SDK uses a pluggable transport adapter pattern. Each adapter encapsulates the wire protocol for one wallet (detection, request posting, response parsing, and ready-signaling). You can add support for any wallet by dropping a single file in `src/supports/`.
+
+### WalletTransportAdapter interface
+
+```typescript
+import type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from '@0xio/sdk';
+
+interface WalletTransportAdapter {
+  /** Short machine-readable name, e.g. 'mywallet' */
+  readonly name: string;
+  /** Human-readable label, e.g. 'My Wallet' */
+  readonly displayName: string;
+
+  /** Return true if this wallet is present in the current page */
+  detect(): boolean;
+
+  /** Send a request to the wallet (page-level transport) */
+  postRequest(request: AdapterRequest): void;
+
+  /** Send a request to a parent frame (optional — for iframe bridge support) */
+  postRequestToParent?(request: AdapterRequest, parentOrigin: string): void;
+
+  /**
+   * Subscribe to wallet responses and events.
+   * Returns a teardown function — call it to unsubscribe.
+   */
+  listen(
+    handler: (msg: AdapterIncomingMessage) => void,
+    options?: { trustedParentOrigins?: string[] }
+  ): () => void;
+
+  /** Subscribe to the wallet's "ready" signal (optional) */
+  listenForReady?(onReady: () => void): () => void;
+}
+```
+
+`AdapterRequest` and `AdapterIncomingMessage`:
+
+```typescript
+interface AdapterRequest {
+  id: string;
+  method: string;
+  params: unknown;
+  timestamp: number;
+}
+
+interface AdapterIncomingMessage {
+  requestId?: string;   // present on responses
+  success?: boolean;
+  data?: unknown;
+  error?: { code: string; message: string; details?: unknown };
+  eventType?: string;   // present on push events
+  eventData?: unknown;
+}
+```
+
+### SDKConfig.adapter
+
+Pass your adapter directly to `ZeroXIOWallet`:
+
+```typescript
+import { ZeroXIOWallet } from '@0xio/sdk';
+import { MyWalletAdapter } from '@0xio/sdk/supports/my-wallet';
+
+const wallet = new ZeroXIOWallet({
+  appName: 'My DApp',
+  adapter: MyWalletAdapter
+});
+```
+
+If `adapter` is omitted, the SDK defaults to `ZeroXIOAdapter` (the built-in 0xio extension adapter).
+
+### Auto-detect
+
+```typescript
+import { detectWalletAdapter, ZeroXIOWallet } from '@0xio/sdk';
+
+const adapter = detectWalletAdapter(); // first registered adapter whose detect() returns true
+if (!adapter) throw new Error('No supported wallet detected');
+
+const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter });
+```
+
+### List all registered adapters
+
+```typescript
+import { getAllAdapters } from '@0xio/sdk';
+
+const adapters = getAllAdapters();
+adapters.forEach(a => console.log(a.name, a.detect() ? '✓' : '✗'));
+```
+
+### Adding a new wallet adapter
+
+1. **Copy the template**: `src/supports/template.ts` → `src/supports/my-wallet.ts`
+2. **Fill in the constants**:
+   ```typescript
+   const REQUEST_SOURCE  = 'wallet-sdk-request';  // outbound message source
+   const RESPONSE_SOURCE = 'wallet-sdk-bridge';   // inbound message source
+   const WINDOW_KEY      = 'myWallet';            // window property the wallet injects
+   const READY_EVENT     = 'myWalletReady';       // CustomEvent fired when ready
+   ```
+3. **Map the message shape** in `listen()` to `AdapterIncomingMessage`
+4. **Register** it in `src/supports/index.ts`:
+   ```typescript
+   import { MyWalletAdapter } from './my-wallet';
+
+   const REGISTERED_ADAPTERS: WalletTransportAdapter[] = [
+     ZeroXIOAdapter,
+     MyWalletAdapter,  // ← add here; detection runs in order, first match wins
+   ];
+   ```
+5. **Export** from `src/index.ts` if it should be part of the public API
+
+### Built-in adapters
+
+| Name | File | Detects |
+|------|------|---------|
+| `zeroxio` | `src/supports/0xio.ts` | `window.wallet0xio`, `window.ZeroXIOWallet`, Chrome extension, meta tags |
+
+### Security note
+
+The built-in `ZeroXIOAdapter` validates a per-session nonce on every inbound message (H-2 fix). The nonce is established over a `MessageChannel` private port at `document_start`, before any page scripts run. Page scripts cannot observe port messages, so they cannot forge valid responses.
 
 ---
 

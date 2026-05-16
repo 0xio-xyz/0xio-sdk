@@ -31,7 +31,8 @@ export interface NetworkInfo {
 // Transaction types
 export interface TransactionData {
   readonly to: string;
-  readonly amount: number;
+  /** Amount in OCT. Accepts string or number — use string for amounts above 9 billion OCT to avoid JS number precision loss. */
+  readonly amount: string | number;
   readonly message?: string;
   readonly feeLevel?: 1 | 3; // 1 = standard, 3 = priority
   readonly isPrivate?: boolean;
@@ -92,7 +93,7 @@ export interface SignedTransaction {
   readonly public_key: string;
 }
 
-export type TransactionFinality = 'pending' | 'confirmed' | 'rejected';
+export type TransactionFinality = 'pending' | 'confirmed' | 'rejected' | 'dropped';
 
 export interface TransactionResult {
   readonly txHash: string;
@@ -113,10 +114,12 @@ export interface Transaction {
   readonly hash: string;
   readonly from: string;
   readonly to: string;
-  readonly amount: number;
-  readonly fee: number;
+  /** Amount in OCT as returned by the node (may be string or number depending on extension version). */
+  readonly amount: string | number;
+  /** Fee in OCT as returned by the node (may be string or number depending on extension version). */
+  readonly fee: string | number;
   readonly timestamp: number;
-  readonly status: 'pending' | 'confirmed' | 'failed';
+  readonly status: 'pending' | 'confirmed' | 'failed' | 'dropped';
   readonly finality?: TransactionFinality;
   readonly message?: string;
   readonly blockHeight?: number;
@@ -130,6 +133,7 @@ export interface ConnectionInfo {
   balance?: Balance;
   networkInfo?: NetworkInfo;
   connectedAt?: number;
+  permissions?: Permission[];
 }
 
 export interface ConnectOptions {
@@ -165,7 +169,7 @@ export interface WalletEvent<T = any> {
 
 export interface ConnectEvent {
   readonly address: string;
-  readonly publicKey?: string;
+  readonly publicKey: string | undefined;
   readonly balance: Balance;
   readonly networkInfo: NetworkInfo;
   readonly permissions: Permission[];
@@ -179,6 +183,7 @@ export interface AccountChangedEvent {
   readonly previousAddress?: string;
   readonly newAddress: string;
   readonly balance: Balance;
+  readonly publicKey?: string;
 }
 
 export interface BalanceChangedEvent {
@@ -247,7 +252,8 @@ export interface PrivateBalanceInfo {
 
 export interface PrivateTransferData {
   readonly to: string;
-  readonly amount: number;
+  /** Amount in OCT. Accepts string or number — use string for amounts above 9 billion OCT to avoid JS number precision loss. */
+  readonly amount: string | number;
   readonly message?: string;
 }
 
@@ -270,6 +276,16 @@ export interface SDKConfig {
   readonly requiredPermissions?: Permission[];
   readonly networkId?: string;
   readonly debug?: boolean;
+  /**
+   * Custom wallet transport adapter.
+   * Defaults to ZeroXIOAdapter (0xio extension postMessage protocol).
+   * Pass an adapter from src/supports/ to target a different wallet.
+   *
+   * @example
+   * import { QubitzAdapter } from '@0xio/sdk/supports/qubitz';
+   * new ZeroXIOWallet({ appName: 'My DApp', adapter: QubitzAdapter });
+   */
+  readonly adapter?: import('./adapter').WalletTransportAdapter;
 }
 
 // Extension communication types
