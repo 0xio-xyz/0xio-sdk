@@ -31,6 +31,7 @@ export { ExtensionCommunicator } from './communication';
 // Adapter exports — implement WalletTransportAdapter to add new wallet support
 export type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from './adapter';
 export { ZeroXIOAdapter, createZeroXIOAdapter } from './supports/0xio';
+export { OctraProviderAdapter, createOctraProviderAdapter } from './supports/octra-provider';
 export { detectWalletAdapter, getAllAdapters } from './supports';
 
 // Type exports

@@ -6,12 +6,15 @@
  */
 
 export { ZeroXIOAdapter, createZeroXIOAdapter } from './0xio';
+export { OctraProviderAdapter, createOctraProviderAdapter } from './octra-provider';
 
 import type { WalletTransportAdapter } from '../adapter';
 import { ZeroXIOAdapter } from './0xio';
+import { OctraProviderAdapter } from './octra-provider';
 
 const REGISTERED_ADAPTERS: WalletTransportAdapter[] = [
-  ZeroXIOAdapter,
+  ZeroXIOAdapter,       // 0xio extension (postMessage protocol) — highest priority
+  OctraProviderAdapter, // any RFC-O-1 compliant wallet (window.octra)
   // Add new wallet adapters here — detection runs in order, first match wins
 ];
 

@@ -32,6 +32,9 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
       return !!(
         win.wallet0xio ||
         win.ZeroXIOWallet ||
+        // 0xio extension also exposes window.octra with isOctra=true; match it here
+        // so this adapter (postMessage protocol) takes priority over OctraProviderAdapter
+        (win.octra?.isOctra && (win.wallet0xio || win.ZeroXIOWallet)) ||
         win.chrome?.runtime?.id ||
         document.querySelector('meta[name="0xio-dapp"]') ||
         document.querySelector('[data-0xio-sdk-bridge]')
