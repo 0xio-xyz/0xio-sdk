@@ -385,7 +385,7 @@ export function generateMockData() {
     networkInfo: {
       id: 'mainnet',
       name: 'Octra Mainnet',
-      rpcUrl: 'http://46.101.86.250:8080',
+      rpcUrl: 'https://octra.network',
       explorerUrl: 'https://lite.octrascan.io/tx.html?hash=',
       explorerAddressUrl: 'https://lite.octrascan.io/address.html?addr=',
       indexerUrl: 'https://lite.octrascan.io',
