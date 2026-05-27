@@ -85,6 +85,13 @@ export function validateNetworkInfo(raw: any): NetworkInfo | null {
   if (typeof raw.id !== 'string' || !raw.id) return null;
   if (typeof raw.name !== 'string') return null;
   if (typeof raw.rpcUrl !== 'string' || (!raw.rpcUrl && raw.id !== 'custom')) return null;
+  if (raw.rpcUrl) {
+    const isHttps = raw.rpcUrl.startsWith('https://');
+    const isLocal = raw.rpcUrl.startsWith('http://localhost') || raw.rpcUrl.startsWith('http://127.0.0.1');
+    const isTestnet = raw.isTestnet === true;
+    // Reject plain-http RPC URLs from untrusted sources unless testnet-flagged or local
+    if (!isHttps && !isLocal && !isTestnet) return null;
+  }
   if (typeof raw.supportsPrivacy !== 'boolean') return null;
   return Object.freeze({
     id: raw.id,
