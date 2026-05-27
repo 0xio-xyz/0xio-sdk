@@ -632,6 +632,9 @@ export class ZeroXIOWallet extends EventEmitter {
     if (callData.method.length > 200) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract method name too long (max 200 characters)');
     }
+    if (callData.amount != null) {
+      this.assertExactOCTAmount(callData.amount, 'Contract call amount');
+    }
     try {
       if (JSON.stringify(callData.params).length > 65536) {
         throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract params too large (max 64 KB)');
@@ -816,8 +819,8 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   async encryptBalance(amount: string | number): Promise<TransactionResult> {
     this.ensureConnected();
+    this.assertExactOCTAmount(amount, 'Encrypt amount');
 
-    // validate amount
     if (!isValidAmount(amount)) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid amount');
     }
@@ -845,8 +848,8 @@ export class ZeroXIOWallet extends EventEmitter {
    */
   async decryptBalance(amount: string | number): Promise<TransactionResult> {
     this.ensureConnected();
+    this.assertExactOCTAmount(amount, 'Decrypt amount');
 
-    // validate amount
     if (!isValidAmount(amount)) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid amount');
     }
@@ -887,6 +890,7 @@ export class ZeroXIOWallet extends EventEmitter {
     if (!isValidAmount(transferData.amount)) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transfer amount');
     }
+    this.assertExactOCTAmount(transferData.amount, 'Transfer amount');
     // bound msg size
     if (transferData.message && transferData.message.length > 1000) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Transfer message too long (max 1,000 characters)');
@@ -1253,6 +1257,25 @@ export class ZeroXIOWallet extends EventEmitter {
     }, 2000);
 
     this.logger.log('Transaction confirmed:', data.txHash);
+  }
+
+  /**
+   * Reject numeric amounts that cannot be represented exactly in micro-OCT.
+   * e.g. 0.1 + 0.2 = 0.30000000000000004 — the extension would sign the wrong value.
+   * String amounts bypass this check (caller is responsible for correctness).
+   */
+  private assertExactOCTAmount(amount: string | number, label: string): void {
+    if (typeof amount === 'number') {
+      const micro = Math.round(amount * 1_000_000);
+      if (Math.abs(amount - micro / 1_000_000) > 1e-10) {
+        const suggested = (micro / 1_000_000).toFixed(6);
+        throw new ZeroXIOWalletError(
+          ErrorCode.INVALID_AMOUNT,
+          `${label} cannot be represented exactly in micro-OCT. ` +
+          `Pass a string instead (e.g. "${suggested}").`
+        );
+      }
+    }
   }
 
   // ===================
