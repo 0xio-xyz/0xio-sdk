@@ -387,9 +387,12 @@ export class ExtensionCommunicator extends EventEmitter {
       }
 
       const isSameOrigin = event.origin === window.location.origin;
-      const isLocalhost = event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:');
       const isTauri = event.origin === 'tauri://localhost' || event.origin === 'https://tauri.localhost';
-      const isTrustedOrigin = this.trustedOrigins.includes(event.origin) || isTauri || isLocalhost;
+      const hasExplicitList = this.trustedOrigins.length > 0;
+      // When trustedParentOrigins is explicitly set, implicit localhost trust is disabled
+      const isLocalhostAllowed = !hasExplicitList &&
+        (event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:'));
+      const isTrustedOrigin = this.trustedOrigins.includes(event.origin) || isTauri || isLocalhostAllowed;
 
       // In iframe mode, only trust the actual parent window
       const inIframe = window.parent !== window;

@@ -51,7 +51,11 @@ export class ZeroXIOWallet extends EventEmitter {
     };
 
     this.logger = createLogger('ZeroXIOWallet', this.config.debug || false);
-    this.communicator = new ExtensionCommunicator(this.config.debug, [], this.config.adapter);
+    this.communicator = new ExtensionCommunicator(
+      this.config.debug,
+      this.config.trustedParentOrigins ?? [],
+      this.config.adapter
+    );
 
     this.logger.log('Wallet instance created with config:', this.config);
   }

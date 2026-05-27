@@ -297,6 +297,12 @@ export interface SDKConfig {
   readonly networkId?: string;
   readonly debug?: boolean;
   /**
+   * Exact origins allowed as parent iframe bridge (e.g. 'https://app.example.com').
+   * When set, only these origins (plus tauri://) are trusted — implicit localhost trust
+   * is disabled. Leave unset for development (all localhost trusted by default).
+   */
+  readonly trustedParentOrigins?: string[];
+  /**
    * Custom wallet transport adapter.
    * Defaults to ZeroXIOAdapter (0xio extension postMessage protocol).
    * Pass an adapter from src/supports/ to target a different wallet.
