@@ -1,8 +1,3 @@
-/**
- * 0xio Wallet SDK - Main Wallet Class
- * Primary interface for DApp developers to interact with 0xio Wallet
- */
-
 import { EventEmitter } from './events';
 import { ExtensionCommunicator } from './communication';
 import {
@@ -60,27 +55,17 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Wallet instance created with config:', this.config);
   }
 
-  // ===================
-  // INITIALIZATION
-  // ===================
-
-  /**
-   * Initialize the SDK
-   * Must be called before using any other methods
-   */
   async initialize(): Promise<boolean> {
     if (this.isInitialized) {
       return true;
     }
 
-    // single-flight init
     if (this._initPromise) {
       return this._initPromise;
     }
 
     this._initPromise = (async () => {
       try {
-        // Initialize extension communication
         const communicationReady = await this.communicator.initialize();
         if (!communicationReady) {
           throw new ZeroXIOWalletError(
@@ -89,7 +74,6 @@ export class ZeroXIOWallet extends EventEmitter {
           );
         }
 
-        // Register this DApp with the extension
         await this.communicator.sendRequest('register_dapp', {
           appName: this.config.appName,
           appDescription: this.config.appDescription,
@@ -100,7 +84,6 @@ export class ZeroXIOWallet extends EventEmitter {
           networkId: this.config.networkId
         });
 
-        // Setup event forwarding from extension
         this.setupExtensionEventListeners();
 
         this.isInitialized = true;
@@ -128,20 +111,10 @@ export class ZeroXIOWallet extends EventEmitter {
     return this._initPromise;
   }
 
-  /**
-   * Check if SDK is initialized
-   */
   isReady(): boolean {
     return this.isInitialized && this.communicator.isExtensionAvailable();
   }
 
-  // ===================
-  // CONNECTION MANAGEMENT
-  // ===================
-
-  /**
-   * Connect to wallet
-   */
   async connect(options: ConnectOptions = {}): Promise<ConnectEvent> {
     this.ensureInitialized();
 
@@ -387,20 +360,10 @@ export class ZeroXIOWallet extends EventEmitter {
     return this.connectionInfo.networkInfo?.id || null;
   }
 
-  // ===================
-  // WALLET INFORMATION
-  // ===================
-
-  /**
-   * Get current wallet address
-   */
   getAddress(): string | null {
     return this.connectionInfo.address || null;
   }
 
-  /**
-   * Get current balance
-   */
   async getBalance(forceRefresh = false): Promise<Balance> {
     this.ensureConnected();
 
@@ -431,7 +394,6 @@ export class ZeroXIOWallet extends EventEmitter {
       // skip if session changed mid-flight
       if (this._sessionVersion !== sv) return result;
 
-      // Update cached balance
       if (this.connectionInfo.balance) {
         const previousBalance = this.connectionInfo.balance;
         this.connectionInfo.balance = result;
@@ -463,9 +425,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Get network information
-   */
   async getNetworkInfo(): Promise<NetworkInfo> {
     this.ensureInitialized();
 
@@ -473,7 +432,6 @@ export class ZeroXIOWallet extends EventEmitter {
       const sv = this._sessionVersion;
       const result = await this.communicator.sendRequest('get_network_info');
 
-      // validate network info before caching
       const networkInfo = validateNetworkInfo(result);
       if (!networkInfo) {
         throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Extension returned invalid network info');
@@ -482,12 +440,10 @@ export class ZeroXIOWallet extends EventEmitter {
       // skip if session changed mid-flight
       if (this._sessionVersion !== sv) return networkInfo;
 
-      // Update cached network info
       if (this.connectionInfo.networkInfo) {
         const previousNetwork = this.connectionInfo.networkInfo;
         this.connectionInfo.networkInfo = networkInfo;
 
-        // Emit network changed event if different
         if (previousNetwork.id !== networkInfo.id) {
           const networkChangedEvent: NetworkChangedEvent = {
             previousNetwork,
@@ -511,24 +467,15 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  // ===================
-  // TRANSACTIONS
-  // ===================
-
-  /**
-   * Send transaction
-   */
   async sendTransaction(txData: TransactionData): Promise<TransactionResult> {
     this.ensureConnected();
 
-    // validate inputs
     if (!isValidAddress(txData.to)) {
       throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid recipient address');
     }
     if (!isValidAmount(txData.amount)) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transaction amount');
     }
-    // bound memo
     if (txData.message && txData.message.length > 1000) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Transaction message too long (max 1,000 characters)');
     }
@@ -621,14 +568,12 @@ export class ZeroXIOWallet extends EventEmitter {
   async callContract(callData: ContractCallData): Promise<TransactionResult> {
     this.ensureConnected();
 
-    // validate inputs
     if (!isValidAddress(callData.contract)) {
       throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid contract address');
     }
     if (!callData.method || typeof callData.method !== 'string') {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract method is required');
     }
-    // bound method + params size
     if (callData.method.length > 200) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Contract method name too long (max 200 characters)');
     }
@@ -680,14 +625,12 @@ export class ZeroXIOWallet extends EventEmitter {
   async contractCallView(viewData: ContractViewCallData): Promise<any> {
     this.ensureInitialized();
 
-    // validate inputs
     if (!isValidAddress(viewData.contract)) {
       throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid contract address');
     }
     if (!viewData.method || typeof viewData.method !== 'string') {
       throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Contract method is required');
     }
-    // bound method + params size
     if (viewData.method.length > 200) {
       throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Contract method name too long (max 200 characters)');
     }
@@ -735,7 +678,6 @@ export class ZeroXIOWallet extends EventEmitter {
   async getContractStorage(contract: string, key: string): Promise<string | null> {
     this.ensureInitialized();
 
-    // validate inputs
     if (!isValidAddress(contract)) {
       throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid contract address');
     }
@@ -792,13 +734,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  // ===================
-  // PRIVATE FEATURES
-  // ===================
-
-  /**
-   * Get private balance information
-   */
   async getPrivateBalanceInfo(): Promise<PrivateBalanceInfo> {
     this.ensureConnected();
 
@@ -883,7 +818,6 @@ export class ZeroXIOWallet extends EventEmitter {
   async sendPrivateTransfer(transferData: PrivateTransferData): Promise<TransactionResult> {
     this.ensureConnected();
 
-    // validate inputs
     if (!isValidAddress(transferData.to)) {
       throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid recipient address');
     }
@@ -970,10 +904,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  // ===================
-  // MESSAGE SIGNING
-  // ===================
-
   /**
    * Sign an arbitrary message with the wallet's private key
    * The user will be prompted to approve the signature request in the extension
@@ -1028,10 +958,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  // ===================
-  // AUTHENTICATION HELPERS
-  // ===================
-
   /**
    * Sign a domain-separated authentication message.
    * Unlike `signMessage()`, this prepends a standard header that binds the signature
@@ -1058,10 +984,6 @@ export class ZeroXIOWallet extends EventEmitter {
     return this.signMessage(domainSeparated);
   }
 
-  // ===================
-  // PRIVATE METHODS
-  // ===================
-
   private ensureInitialized(): void {
     if (!this.isInitialized) {
       throw new ZeroXIOWalletError(
@@ -1083,7 +1005,6 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   private setupExtensionEventListeners(): void {
-    // Listen for extension events through the communicator
     this.communicator.on('accountChanged', (event) => {
       this.handleAccountChanged(event.data);
     });
@@ -1123,9 +1044,6 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Extension event listeners setup complete');
   }
 
-  /**
-   * Handle account changed event from extension
-   */
   private handleAccountChanged(data: { address: string; balance?: Balance; publicKey?: string }): void {
     ++this._sessionVersion;
     const previousAddress = this.connectionInfo.address;
@@ -1134,7 +1052,6 @@ export class ZeroXIOWallet extends EventEmitter {
     // clear stale pubkey on acct change
     this.connectionInfo.publicKey = data.publicKey;
     if (data.balance) {
-      // validate balance before caching
       const validated = validateBalance(data.balance);
       if (validated) {
         this.connectionInfo.balance = validated;
@@ -1155,9 +1072,6 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Account changed:', { newAddress: accountChangedEvent.newAddress });
   }
 
-  /**
-   * Handle network changed event from extension
-   */
   private handleNetworkChanged(data: { networkInfo: NetworkInfo }): void {
     const previousNetwork = this.connectionInfo.networkInfo;
 
@@ -1182,11 +1096,7 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Network changed:', networkChangedEvent);
   }
 
-  /**
-   * Handle balance changed event from extension
-   */
   private handleBalanceChanged(data: { balance: Balance }): void {
-    // validate balance before caching
     const balance = validateBalance(data.balance);
     if (!balance) {
       this.logger.warn('Received invalid balance in balanceChanged event, ignoring');
@@ -1207,14 +1117,10 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Balance changed:', { public: balance.public });
   }
 
-  /**
-   * Handle extension locked event
-   */
   private handleExtensionLocked(): void {
     ++this._sessionVersion;
     this.connectionInfo = { isConnected: false };
 
-    // emit extensionLocked then disconnect
     this.emit('extensionLocked', {});
 
     const disconnectEvent: DisconnectEvent = {
@@ -1226,14 +1132,8 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Extension locked - disconnected');
   }
 
-  /**
-   * Handle extension unlocked event
-   */
   private handleExtensionUnlocked(): void {
-    // emit extensionUnlocked
     this.emit('extensionUnlocked', {});
-
-    // Attempt to restore connection
     this.getConnectionStatus().catch(() => {
       this.logger.warn('Could not restore connection after unlock');
     });
@@ -1241,9 +1141,6 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Extension unlocked');
   }
 
-  /**
-   * Handle transaction confirmed event
-   */
   private handleTransactionConfirmed(data: any): void {
     this.emit('transactionConfirmed', {
       txHash: data.txHash,
@@ -1278,13 +1175,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  // ===================
-  // CLEANUP
-  // ===================
-
-  /**
-   * Clean up SDK resources
-   */
   cleanup(): void {
     this.communicator.cleanup();
     this.removeAllListeners();

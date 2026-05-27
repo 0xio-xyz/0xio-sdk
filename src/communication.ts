@@ -1,15 +1,3 @@
-/**
- * 0xio Wallet SDK - Extension Communication Module
- *
- * @fileoverview Manages secure communication between the SDK and browser extension.
- * Implements message passing, request/response handling, rate limiting, and origin validation
- * to ensure secure wallet interactions.
- *
- * @module communication
- * @version 2.7.0
- * @license MIT
- */
-
 import {
   ExtensionRequest,
   ExtensionResponse,

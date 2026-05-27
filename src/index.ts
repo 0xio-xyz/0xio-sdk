@@ -136,7 +136,7 @@ export {
 } from './utils';
 
 // Version information
-export const SDK_VERSION = '2.7.0';
+export const SDK_VERSION = '2.7.1';
 export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
 export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
@@ -163,10 +163,7 @@ export async function createZeroXIOWallet(config: {
   if (config.autoConnect) {
     try {
       await wallet.connect();
-    } catch (error) {
-      if (config.debug) {
-        // console.warn('[0xio SDK] Auto-connect failed:', error);
-      }
+    } catch {
       // Don't throw - let the app handle connection manually
     }
   }

@@ -1,17 +1,5 @@
-/**
- * 0xio Wallet SDK - Utilities
- * Helper functions for validation, formatting, and common operations
- */
-
 import { ErrorCode, ZeroXIOWalletError } from './types';
 
-// ===================
-// VALIDATION UTILITIES
-// ===================
-
-/**
- * Validate wallet address for Octra blockchain
- */
 export function isValidAddress(address: string): boolean {
   if (!address || typeof address !== 'string') {
     return false;
@@ -38,9 +26,6 @@ export function isValidAmount(amount: string | number): boolean {
     amount <= Number.MAX_SAFE_INTEGER;
 }
 
-/**
- * Validate transaction message
- */
 export function isValidMessage(message: string): boolean {
   // Type check first — falsy non-strings (0, false, null) are NOT valid messages
   if (typeof message !== 'string') {
@@ -56,16 +41,9 @@ export function isValidMessage(message: string): boolean {
   return message.length <= 100_000;
 }
 
-/**
- * Validate fee level
- */
 export function isValidFeeLevel(feeLevel: number): boolean {
   return feeLevel === 1 || feeLevel === 3;
 }
-
-// ===================
-// ADDRESS DERIVATION
-// ===================
 
 const _B58_ALPHA = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -112,13 +90,6 @@ export async function deriveOctraAddress(publicKeyBase64: string): Promise<strin
   return 'oct' + _base58Encode(new Uint8Array(hashBuf));
 }
 
-// ===================
-// FORMATTING UTILITIES
-// ===================
-
-/**
- * Format OCT amount for display
- */
 export function formatOCT(amount: number | string, decimals = 6): string {
   const n = typeof amount === 'string' ? parseFloat(amount) : amount;
   if (!isValidAmount(n)) {
@@ -131,9 +102,6 @@ export function formatOCT(amount: number | string, decimals = 6): string {
   });
 }
 
-/**
- * Format address for display (truncated)
- */
 export function formatAddress(address: string, prefixLength = 6, suffixLength = 4): string {
   if (!isValidAddress(address)) {
     return 'Invalid Address';
@@ -146,17 +114,11 @@ export function formatAddress(address: string, prefixLength = 6, suffixLength = 
   return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
 }
 
-/**
- * Format timestamp for display
- */
 export function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
   return date.toLocaleString();
 }
 
-/**
- * Format transaction hash for display
- */
 export function formatTxHash(hash: string, length = 12): string {
   if (!hash || typeof hash !== 'string') {
     return 'Invalid Hash';
@@ -172,13 +134,6 @@ export function formatTxHash(hash: string, length = 12): string {
   return `${hash.slice(0, prefixLength)}...${hash.slice(-suffixLength)}`;
 }
 
-// ===================
-// CONVERSION UTILITIES
-// ===================
-
-/**
- * Convert OCT to micro OCT (for network transmission)
- */
 export function toMicroOCT(amount: number): string {
   if (!isValidAmount(amount)) {
     throw new ZeroXIOWalletError(
@@ -192,9 +147,6 @@ export function toMicroOCT(amount: number): string {
   return microOCT.toString();
 }
 
-/**
- * Convert micro OCT to OCT (for display)
- */
 export function fromMicroOCT(microAmount: string | number): number {
   const amount = typeof microAmount === 'string' ? parseInt(microAmount, 10) : microAmount;
 
@@ -208,13 +160,6 @@ export function fromMicroOCT(microAmount: string | number): number {
   return amount / 1_000_000;
 }
 
-// ===================
-// ERROR UTILITIES
-// ===================
-
-/**
- * Create standardized error messages
- */
 export function createErrorMessage(code: ErrorCode, context?: string): string {
   const baseMessages: Record<ErrorCode, string> = {
     [ErrorCode.EXTENSION_NOT_FOUND]: '0xio Wallet extension is not installed or enabled',
@@ -243,27 +188,14 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
   return context ? `${baseMessage}: ${context}` : baseMessage;
 }
 
-/**
- * Check if error is a specific type
- */
 export function isErrorType(error: any, code: ErrorCode): boolean {
   return error instanceof ZeroXIOWalletError && error.code === code;
 }
 
-// ===================
-// ASYNC UTILITIES
-// ===================
-
-/**
- * Create a promise that resolves after a delay
- */
 export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Retry an async operation with exponential backoff
- */
 export async function retry<T>(
   operation: () => Promise<T>,
   maxRetries = 3,
@@ -322,20 +254,10 @@ export function withTimeout<T>(
   });
 }
 
-// ===================
-// BROWSER UTILITIES
-// ===================
-
-/**
- * Check if running in browser environment
- */
 export function isBrowser(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
 
-/**
- * Check if browser supports required features
- */
 export function checkBrowserSupport(): {
   supported: boolean;
   missingFeatures: string[];
@@ -366,13 +288,6 @@ export function checkBrowserSupport(): {
   };
 }
 
-// ===================
-// DEVELOPMENT UTILITIES
-// ===================
-
-/**
- * Generate mock data for development/testing
- */
 export function generateMockData() {
   return {
     address: 'oct' + Math.random().toString(36).substring(2, 22) + Math.random().toString(36).substring(2, 26),
@@ -396,9 +311,6 @@ export function generateMockData() {
   };
 }
 
-/**
- * Create development logger
- */
 export function createLogger(prefix: string, debug: boolean) {
   const isDevelopment = typeof window !== 'undefined' && (
     (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.NODE_ENV === 'development') ||
