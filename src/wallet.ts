@@ -176,9 +176,16 @@ export class ZeroXIOWallet extends EventEmitter {
         }
       }
 
-      // Use networkInfo from extension response — validate before caching
+      // Use networkInfo from extension response — validate before caching.
       const networkInfo = validateNetworkInfo(result.networkInfo)
-        ?? getNetworkConfig(result.networkId || this.config.networkId);
+        ?? (result.networkId ? getNetworkConfig(result.networkId) : null);
+
+      if (!networkInfo) {
+        throw new ZeroXIOWalletError(
+          ErrorCode.NETWORK_ERROR,
+          'Wallet did not return valid network metadata.'
+        );
+      }
       const permissions = result.permissions || [];
 
       // Update connection info — including permissions
@@ -291,7 +298,12 @@ export class ZeroXIOWallet extends EventEmitter {
         // validate untrusted balance/networkInfo before caching
         const balanceInfo = validateBalance(result.balance) ?? createDefaultBalance();
         const networkInfo = validateNetworkInfo(result.networkInfo)
-          ?? getNetworkConfig(result.networkId || this.config.networkId);
+          ?? (result.networkId ? getNetworkConfig(result.networkId) : null);
+
+        if (!networkInfo) {
+          this.logger.warn('getConnectionStatus: wallet returned no network metadata — returning cached state');
+          return this.connectionInfo;
+        }
 
         const wasConnected = this.connectionInfo.isConnected;
         const permissions = result.permissions || [];
