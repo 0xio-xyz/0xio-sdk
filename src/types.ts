@@ -58,8 +58,8 @@ export interface ContractCallData {
    */
   readonly params: ContractParams;
   /**
-   * Native OCT to send with the call (in micro-units, 1 OCT = 1000000).
-   * Set to 0 for calls that don't transfer native tokens.
+   * Native OCT to send with the call (in OCT, same unit as sendTransaction.amount).
+   * Set to '0' for calls that don't transfer native tokens.
    */
   readonly amount?: string | number;
   /**
