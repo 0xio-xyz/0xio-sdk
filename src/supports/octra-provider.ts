@@ -21,7 +21,9 @@ const SDK_TO_RFC: Record<string, string> = {
   switch_network: 'octra_switchNetwork',
   signMessage: 'octra_signMessage',
   send_transaction: 'octra_sendTransaction',
-  call_contract: 'octra_callContract',
+  sign_transaction: 'octra_signTransaction',
+  broadcast_only: 'octra_submitTransaction',
+  call_contract: 'octra_sendContractTransaction',
   contract_call_view: 'octra_callContract',
   get_private_balance_info: 'octra_getEncryptedBalance',
   encrypt_balance: 'octra_encryptBalance',
@@ -34,7 +36,7 @@ const SDK_TO_RFC: Record<string, string> = {
 const RFC_TO_SDK_ERROR: Record<number, string> = {
   4001: 'USER_REJECTED',
   4100: 'PERMISSION_DENIED',
-  4200: 'NETWORK_ERROR',
+  4200: 'UNKNOWN_ERROR',
   4900: 'CONNECTION_REFUSED',
   4901: 'NETWORK_ERROR',
 };
@@ -54,7 +56,7 @@ function mapError(err: any): { code: string; message: string } {
  * three RFC-O-1 calls: octra_requestAccounts, octra_networkInfo, octra_permissions.
  */
 async function rfcConnect(provider: any, params: unknown): Promise<unknown> {
-  const requestPerms = (params as any)?.requestPermissions ?? [];
+  const requestPerms = (params as any)?.permissions ?? (params as any)?.requestPermissions ?? [];
   const accounts = (await provider.request({
     method: 'octra_requestAccounts',
     params: [{ permissions: requestPerms }],
@@ -161,12 +163,16 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
       const onTransactionChanged = (data: any) =>
         handler({ eventType: 'transactionConfirmed', eventData: data });
 
+      const onPermissionsChanged = (data: any) =>
+        handler({ eventType: 'permissionsChanged', eventData: data });
+
       provider.on('connect', onConnect);
       provider.on('disconnect', onDisconnect);
       provider.on('accountsChanged', onAccountsChanged);
       provider.on('networkChanged', onNetworkChanged);
       provider.on('balanceChanged', onBalanceChanged);
       provider.on('transactionChanged', onTransactionChanged);
+      provider.on('permissionsChanged', onPermissionsChanged);
 
       const cleanup = () => {
         provider.removeListener('connect', onConnect);
@@ -175,6 +181,7 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
         provider.removeListener('networkChanged', onNetworkChanged);
         provider.removeListener('balanceChanged', onBalanceChanged);
         provider.removeListener('transactionChanged', onTransactionChanged);
+        provider.removeListener('permissionsChanged', onPermissionsChanged);
         _handler = null;
       };
 
@@ -185,7 +192,11 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
     listenForReady(onReady: () => void): () => void {
       const handler = () => onReady();
       window.addEventListener('octraWalletReady', handler);
-      return () => window.removeEventListener('octraWalletReady', handler);
+      window.addEventListener('octra#initialized', handler);
+      return () => {
+        window.removeEventListener('octraWalletReady', handler);
+        window.removeEventListener('octra#initialized', handler);
+      };
     },
   };
 }
