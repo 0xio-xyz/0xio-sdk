@@ -113,6 +113,7 @@ export class ExtensionCommunicator extends EventEmitter {
   // causing double popups where the second tx fails (stale nonce/state).
   private static readonly NO_RETRY_METHODS = new Set([
     'connect', 'send_transaction', 'call_contract', 'signMessage',
+    'sign_transaction', 'broadcast_only',
     'send_private_transfer', 'claim_private_transfer',
     'encrypt_balance', 'decrypt_balance',
   ]);
@@ -252,8 +253,8 @@ export class ExtensionCommunicator extends EventEmitter {
   // only forward known event types
   private static readonly VALID_EVENT_TYPES = new Set<string>([
     'connect', 'disconnect', 'accountChanged', 'balanceChanged',
-    'networkChanged', 'transactionConfirmed', 'error',
-    'extensionLocked', 'extensionUnlocked'
+    'networkChanged', 'transactionConfirmed', 'permissionsChanged', 'message',
+    'error', 'extensionLocked', 'extensionUnlocked'
   ]);
 
   private handleExtensionEvent(event: any): void {
