@@ -924,7 +924,7 @@ console.log(devnet.supportsPrivacy);  // true (FHE enabled)
 console.log(devnet.isTestnet);        // true
 
 const mainnet = getNetworkConfig('mainnet');
-console.log(mainnet.rpcUrl);          // http://46.101.86.250:8080
+console.log(mainnet.rpcUrl);          // https://octra.network
 console.log(mainnet.supportsPrivacy); // true
 
 // List all available networks
@@ -934,7 +934,7 @@ all.forEach(n => console.log(n.id, n.name));
 
 | Network | RPC | Privacy (FHE) | Testnet |
 |---------|-----|:---:|:---:|
-| Mainnet | `http://46.101.86.250:8080` | Yes | No |
+| Mainnet | `https://octra.network` | Yes | No |
 | Devnet | `http://165.227.225.79:8080` | Yes | Yes |
 | Custom | User-defined | No | No |
 
@@ -1138,13 +1138,16 @@ adapters.forEach(a => console.log(a.name, a.detect() ? '✓' : '✗'));
 
 ### Built-in adapters
 
-| Name | File | Detects |
-|------|------|---------|
-| `zeroxio` | `src/supports/0xio.ts` | `window.wallet0xio`, `window.ZeroXIOWallet`, Chrome extension, meta tags |
+| Name | File | Detects | Priority |
+|------|------|---------|----------|
+| `zeroxio` | `src/supports/0xio.ts` | `window.wallet0xio`, `window.ZeroXIOWallet`, Chrome extension, meta tags | 1st |
+| `octra-provider` | `src/supports/octra-provider.ts` | `window.octra.isOctra === true` (RFC-O-1) | 2nd |
+
+`ZeroXIOAdapter` always takes priority when `window.wallet0xio` or `window.ZeroXIOWallet` is present — existing DApps built on the 0xio postMessage bridge are unaffected. `OctraProviderAdapter` is used when only `window.octra` is available (third-party RFC-O-1 wallets) or when passed explicitly.
 
 ### Security note
 
-The built-in `ZeroXIOAdapter` validates a per-session nonce on every inbound message (H-2 fix). The nonce is established over a `MessageChannel` private port at `document_start`, before any page scripts run. Page scripts cannot observe port messages, so they cannot forge valid responses.
+The built-in `ZeroXIOAdapter` validates a per-session nonce on every inbound message. The nonce is established over a `MessageChannel` private port at `document_start`, before any page scripts run. Page scripts cannot observe port messages, so they cannot forge valid responses.
 
 ---
 
