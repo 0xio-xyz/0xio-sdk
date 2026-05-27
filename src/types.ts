@@ -96,8 +96,16 @@ export interface SignedTransaction {
 export type TransactionFinality = 'pending' | 'confirmed' | 'rejected' | 'dropped';
 
 export interface TransactionResult {
-  readonly txHash: string;
-  readonly success: boolean;
+  /** RFC-O-1 canonical hash field */
+  readonly hash?: string;
+  /** RFC-O-1 canonical accepted field */
+  readonly accepted?: boolean;
+  /** RFC-O-1 status field */
+  readonly status?: TransactionFinality;
+  /** @deprecated Use hash */
+  readonly txHash?: string;
+  /** @deprecated Use accepted */
+  readonly success?: boolean;
   readonly finality?: TransactionFinality;
   readonly message?: string;
   readonly explorerUrl?: string;
@@ -137,6 +145,9 @@ export interface ConnectionInfo {
 }
 
 export interface ConnectOptions {
+  /** RFC-O-1 canonical field name */
+  readonly permissions?: Permission[];
+  /** @deprecated Use permissions */
   readonly requestPermissions?: Permission[];
   readonly networkId?: string;
 }
@@ -144,10 +155,17 @@ export interface ConnectOptions {
 export type Permission =
   | 'read_address'
   | 'read_balance'
+  | 'read_public_key'
   | 'send_transactions'
   | 'sign_messages'
+  | 'contract_calls'
   | 'view_private_balance'
-  | 'private_transfers';
+  | 'view_encrypted_balance'
+  | 'private_transfers'
+  | 'encrypt_balance'
+  | 'decrypt_balance'
+  | 'stealth_scan'
+  | 'stealth_claim';
 
 // Event types
 export type WalletEventType =
@@ -157,6 +175,8 @@ export type WalletEventType =
   | 'balanceChanged'
   | 'networkChanged'
   | 'transactionConfirmed'
+  | 'permissionsChanged'
+  | 'message'
   | 'error'
   | 'extensionLocked'
   | 'extensionUnlocked';
