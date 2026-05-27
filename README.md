@@ -272,7 +272,7 @@ console.log(devnet.isTestnet);        // true
 
 // Get mainnet config
 const mainnet = getNetworkConfig('mainnet');
-console.log(mainnet.rpcUrl);          // http://46.101.86.250:8080
+console.log(mainnet.rpcUrl);          // https://octra.network
 console.log(mainnet.supportsPrivacy); // true
 ```
 
@@ -338,6 +338,37 @@ const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter: ZeroXIOAdapter }
 4. Export it from `src/index.ts` if you want it in the public API
 
 See `DOCUMENTATION.md → Wallet Adapter System` for the full interface spec.
+
+## RFC-O-1 Provider Interface (`window.octra`)
+
+The 0xio extension exposes a standard `window.octra` provider per the RFC-O-1 spec in addition to the legacy `window.wallet0xio` bridge. The SDK supports both automatically.
+
+```typescript
+// window.octra shape (injected by the extension)
+window.octra.isOctra  // true — standard wallet detection
+window.octra.request({ method: 'octra_requestAccounts', params: [{}] })
+window.octra.on('accountsChanged', handler)
+window.octra.removeListener('accountsChanged', handler)
+```
+
+### How adapter priority works
+
+When the SDK initializes, `detectWalletAdapter()` runs detection in order:
+
+1. **`ZeroXIOAdapter`** — detected via `window.wallet0xio` / `window.ZeroXIOWallet` (postMessage bridge). Priority when the 0xio extension is installed — existing DApps are unaffected.
+2. **`OctraProviderAdapter`** — detected via `window.octra.isOctra === true`. Used when only the RFC-O-1 provider is present (third-party RFC-O-1 wallets, or DApps that explicitly request it).
+
+Old DApps using the postMessage bridge continue to work unchanged. New DApps can opt into `OctraProviderAdapter` directly:
+
+```typescript
+import { ZeroXIOWallet, OctraProviderAdapter } from '@0xio/sdk';
+
+// Explicitly use the RFC-O-1 window.octra provider
+const wallet = new ZeroXIOWallet({
+  appName: 'My DApp',
+  adapter: OctraProviderAdapter,
+});
+```
 
 ## Requirements
 
