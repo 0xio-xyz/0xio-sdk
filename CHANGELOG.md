@@ -2,6 +2,23 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.7.1] - 2026-05-27
+
+### Added
+
+- **`OctraProviderAdapter`** (`src/supports/octra-provider.ts`): RFC-O-1 compliant transport adapter that uses `window.octra.request()` instead of the postMessage bridge. Detects any wallet exposing `window.octra.isOctra === true`. Translates SDK method names to RFC-O-1 method names (`send_transaction` → `octra_sendTransaction`, etc.) and maps events back to SDK vocabulary. Registered second in the adapter registry — existing DApps using the postMessage bridge are unaffected.
+- **`listenForReady`** in `OctraProviderAdapter` now also listens for `octra#initialized` CustomEvent (dispatched by 0xio extension v2.4.3+) in addition to `octraWalletReady`, ensuring the provider is detected immediately on page load.
+
+### Fixed
+
+- Mainnet RPC URL in docs updated to `https://octra.network` (was stale `http://46.101.86.250:8080`)
+
+### Compatibility
+
+- No breaking changes — `ZeroXIOAdapter` (postMessage bridge) remains the default and takes priority when `window.wallet0xio` is present
+- Old DApps work unchanged; new DApps can opt into `OctraProviderAdapter` explicitly or via `detectWalletAdapter()`
+- Requires 0xio Wallet Extension v2.4.3+ for `octra#initialized` event; falls back to `octraWalletReady` on older versions
+
 ## [2.7.0] - 2026-05-16
 
 ### Security (post-audit remediation)
