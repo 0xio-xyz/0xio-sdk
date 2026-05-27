@@ -144,14 +144,15 @@ export class ZeroXIOWallet extends EventEmitter {
     try {
       this.logger.log('Attempting to connect with options:', options);
 
-      // filter to declared perms only
+      // filter to declared perms only — accept both RFC 'permissions' and legacy 'requestPermissions'
       const declaredPermissions = this.config.requiredPermissions || [];
-      const requestPermissions = options.requestPermissions
-        ? options.requestPermissions.filter(p => declaredPermissions.includes(p))
+      const requestedPerms = options.permissions ?? options.requestPermissions;
+      const requestedPermissions = requestedPerms
+        ? requestedPerms.filter(p => declaredPermissions.includes(p))
         : declaredPermissions;
 
       const result = await this.communicator.sendRequest('connect', {
-        requestPermissions,
+        permissions: requestedPermissions,
         networkId: options.networkId || this.config.networkId
       });
 
@@ -524,8 +525,8 @@ export class ZeroXIOWallet extends EventEmitter {
 
       this.logger.log('Transaction result:', result);
 
-      // Refresh balance after successful transaction
-      if (result.success) {
+      // Refresh balance after successful transaction (accept RFC 'accepted' or legacy 'success')
+      if (result.accepted ?? result.success) {
         setTimeout(() => {
           this.getBalance(true).catch(error => {
             this.logger.warn('Failed to refresh balance after transaction:', error);
@@ -546,6 +547,54 @@ export class ZeroXIOWallet extends EventEmitter {
         'Failed to send transaction',
         error
       );
+    }
+  }
+
+  /**
+   * Sign a transaction without broadcasting it (RFC-O-1 octra_signTransaction).
+   * Returns the signed transaction object for manual submission via submitTransaction().
+   */
+  async signTransaction(txData: TransactionData): Promise<{ signedTx: any }> {
+    this.ensureConnected();
+
+    if (!isValidAddress(txData.to)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid recipient address');
+    }
+    if (!isValidAmount(txData.amount)) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transaction amount');
+    }
+    if (txData.message && txData.message.length > 1000) {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Transaction message too long (max 1,000 characters)');
+    }
+
+    try {
+      this.logger.log('Requesting transaction signature:', { to: txData.to });
+      const result = await this.communicator.sendRequest('sign_transaction', txData);
+      return result;
+    } catch (error) {
+      if (error instanceof ZeroXIOWalletError) throw error;
+      throw new ZeroXIOWalletError(ErrorCode.SIGNATURE_FAILED, 'Failed to sign transaction', error);
+    }
+  }
+
+  /**
+   * Broadcast a pre-signed transaction (RFC-O-1 octra_submitTransaction).
+   * Use after signTransaction() to submit the signed tx to the network.
+   */
+  async submitTransaction(signedTx: any): Promise<TransactionResult> {
+    this.ensureConnected();
+
+    if (!signedTx || typeof signedTx !== 'object') {
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'signedTx must be an object');
+    }
+
+    try {
+      this.logger.log('Submitting pre-signed transaction');
+      const result = await this.communicator.sendRequest('broadcast_only', { signedTx });
+      return result;
+    } catch (error) {
+      if (error instanceof ZeroXIOWalletError) throw error;
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Failed to submit transaction', error);
     }
   }
 
@@ -830,8 +879,8 @@ export class ZeroXIOWallet extends EventEmitter {
     try {
       const result = await this.communicator.sendRequest('send_private_transfer', transferData);
 
-      // Refresh balance after transfer
-      if (result.success) {
+      // Refresh balance after transfer (accept RFC 'accepted' or legacy 'success')
+      if (result.accepted ?? result.success) {
         setTimeout(() => {
           this.getBalance(true).catch(() => { });
         }, 1000);
@@ -884,8 +933,8 @@ export class ZeroXIOWallet extends EventEmitter {
         transferId
       });
 
-      // Refresh balance after claiming
-      if (result.success) {
+      // Refresh balance after claiming (accept RFC 'accepted' or legacy 'success')
+      if (result.accepted ?? result.success) {
         setTimeout(() => {
           this.getBalance(true).catch(() => { });
         }, 1000);
@@ -1037,6 +1086,18 @@ export class ZeroXIOWallet extends EventEmitter {
 
     this.communicator.on('transactionConfirmed', (event) => {
       this.handleTransactionConfirmed(event.data);
+    });
+
+    this.communicator.on('permissionsChanged', (event) => {
+      const permissions = event.data ?? event;
+      if (this.connectionInfo.isConnected) {
+        this.connectionInfo.permissions = Array.isArray(permissions) ? permissions : [];
+      }
+      this.emit('permissionsChanged', permissions);
+    });
+
+    this.communicator.on('message', (event) => {
+      this.emit('message', event.data ?? event);
     });
 
     this.logger.log('Extension event listeners setup complete');
