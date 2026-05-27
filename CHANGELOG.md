@@ -4,6 +4,14 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 ## [2.7.1] - 2026-05-27
 
+### Security
+
+- **LOW (re-assessed from HIGH):** Removed `this.config.networkId` silent fallback in `connect()` and `getConnectionStatus()`. If neither `networkInfo` nor `networkId` can be resolved from the response, `connect()` now throws `NETWORK_ERROR` and `getConnectionStatus()` returns cached state. The current extension always returns valid `networkInfo`; this hardens against malformed responses from custom or future adapters.
+- **MED-1:** Added `SDKConfig.trustedParentOrigins` — when set, only listed origins (+ `tauri://`) are trusted as parent iframe bridges; implicit localhost trust is disabled. Omitting the field keeps existing dev-friendly behavior.
+- **LOW-2:** `validateNetworkInfo()` now rejects `http://` `rpcUrl` values on non-testnet networks. Testnet networks (`isTestnet: true`) and localhost are unaffected. Prevents a malicious bridge from injecting an insecure RPC endpoint.
+- **LOW-19:** `encryptBalance()`, `decryptBalance()`, `sendPrivateTransfer()`, and `callContract()` now throw `INVALID_AMOUNT` when a numeric amount cannot be represented exactly in micro-OCT (6 decimal places). Pass a string (e.g. `"0.300000"`) for exact control.
+- **LOW-28 (docs):** `ContractCallData.amount` JSDoc corrected — field is OCT, not micro-units. No behavior change.
+
 ### Added
 
 - **`OctraProviderAdapter`** (`src/supports/octra-provider.ts`): RFC-O-1 compliant transport adapter that uses `window.octra.request()` instead of the postMessage bridge. Detects any wallet exposing `window.octra.isOctra === true`. Translates SDK method names to RFC-O-1 method names (`send_transaction` → `octra_sendTransaction`, etc.) and maps events back to SDK vocabulary. Registered second in the adapter registry — existing DApps using the postMessage bridge are unaffected.
