@@ -2,19 +2,53 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.8.0] - 2026-06-09
+
+### Added
+
+- **Generic provider passthrough**: `wallet.request(method, params)` sends any method through the bridge, so dapps can reach wallet primitives without an SDK upgrade.
+- **Typed RFP private primitives** (thin helpers over the bridge; the wallet keeps all private/FHE secret material internal and returns only ciphertexts/proofs/tx-hashes):
+  - `getPrivateCapabilities()`: feature-detect supported private capabilities so a dapp renders the right UI or fails closed.
+  - `callContractView()`, `getPrivateBalance()`
+  - `encryptValue()`, `decryptValue()`
+  - `makeZeroProof()`: returns `{ proof, commitment, blinding, encoding }` (the Octra bound-proof scheme needs the commitment+blinding alongside the proof).
+  - `makeRangeProof()`: returns `{ proof, encoding }` (self-contained).
+  - `registerPrivateViewKey()`, `sendContractTransactionSequence()`
+- Internal bridge method names: `get_private_capabilities`, `encrypt_value`, `decrypt_value`, `make_zero_proof`, `make_range_proof`, `get_private_balance`, `register_private_view_key`, `send_contract_transaction_sequence`.
+- **0xio Signed Message standard + verification**: `wallet.signMessage` is domain-separated: the wallet signs `"Octra Signed Message:\n<byteLength>\n<message>"` so a signed message can never be a transaction pre-image. New `verifyMessage(message, signature, publicKey)` (Web Crypto Ed25519, zero-dep), `getSignedMessageBytes(message)` to verify with any Ed25519 library, and `buildAuthMessage(service, nonce, origin)` for `signAuthMessage`. Note: verifiers of raw-message signatures must adopt the framing.
+
+### Changed
+
+- **Amounts are documented the way the wallet counts them.** `sendTransaction`, `signTransaction` and `callContract` have always passed `amount` to the wallet unchanged, and the wallet reads it as raw micro-OCT (1 OCT = 1000000), not OCT as the docs said. Nothing on the wire changes: whatever a dapp sends today still goes through as is. A new `amountOct` field takes OCT and converts it exactly; `sendPrivateTransfer` gains `amountRaw` for the same reason in the other direction. Pass one or the other.
+- **Permission names match the wallet.** The wallet enforces `accounts`, `public_transactions`, `contract_calls`, `contract_views`, `private_balance_read`, `private_proofs`, `private_transfers` and `private_claims`, and dropped every other name, so dapps asking for `view_private_balance` or `stealth_claim` never received the private scopes. The SDK now translates the older names when it connects and returns them as aliases next to the granted scopes, so existing checks keep working. `WALLET_PERMISSIONS`, `LEGACY_PERMISSION_MAP`, `toWalletPermissions` and `withLegacyAliases` are exported.
+- `sendPrivateTransfer` waits up to 10 minutes: the wallet builds proofs after the approval.
+- `switchNetwork` and everything that signs or submits need a connected page; the wallet now refuses them otherwise with `NOT_CONNECTED`.
+- The RFC-O-1 adapter maps the 2.8.0 primitives to their `octra_*` names, so they work over `window.octra` too.
+
+### Fixed
+
+- `getPublicKey()` exists. The docs and the signing example called it, but the wallet class had no such method.
+- `rpcCall(method, params)` wraps the wallet's read-only node RPC allow-list; a bare `request('octra_balance')` is not a wallet method.
+- `transactionFailed` events reach the dapp; they were filtered out.
+- `ErrorCode` includes the codes the wallet actually returns (`NOT_CONNECTED`, `INVALID_PARAMS`, `NOT_AVAILABLE`, `PRIVATE_PROOF_FAILED` and the rest).
+- `encryptValue` and `makeZeroProof` result types include the `commitment` (and `blinding`) the wallet returns.
+- `encryptBalance` and `decryptBalance` are marked deprecated: the 0xio extension answers `NOT_AVAILABLE`.
+- The built-in devnet entry points at `https://devnet.octrascan.io`; the old direct IP is dead.
+- `PendingPrivateTransfer` documents what the wallet really returns (`id` and a raw `amount`).
+
 ## [2.7.1] - 2026-05-27
 
 ### Security
 
 - **LOW (re-assessed from HIGH):** Removed `this.config.networkId` silent fallback in `connect()` and `getConnectionStatus()`. If neither `networkInfo` nor `networkId` can be resolved from the response, `connect()` now throws `NETWORK_ERROR` and `getConnectionStatus()` returns cached state. The current extension always returns valid `networkInfo`; this hardens against malformed responses from custom or future adapters.
-- **MED-1:** Added `SDKConfig.trustedParentOrigins` — when set, only listed origins (+ `tauri://`) are trusted as parent iframe bridges; implicit localhost trust is disabled. Omitting the field keeps existing dev-friendly behavior.
-- **LOW-2:** `validateNetworkInfo()` now rejects `http://` `rpcUrl` values on non-testnet networks. Testnet networks (`isTestnet: true`) and localhost are unaffected. Prevents a malicious bridge from injecting an insecure RPC endpoint.
-- **LOW-19:** `encryptBalance()`, `decryptBalance()`, `sendPrivateTransfer()`, and `callContract()` now throw `INVALID_AMOUNT` when a numeric amount cannot be represented exactly in micro-OCT (6 decimal places). Pass a string (e.g. `"0.300000"`) for exact control.
-- **LOW-28 (docs):** `ContractCallData.amount` JSDoc corrected — field is OCT, not micro-units. No behavior change.
+- Added `SDKConfig.trustedParentOrigins`: when set, only listed origins (+ `tauri://`) are trusted as parent iframe bridges; implicit localhost trust is disabled. Omitting the field keeps existing dev-friendly behavior.
+- `validateNetworkInfo()` now rejects `http://` `rpcUrl` values on non-testnet networks. Testnet networks (`isTestnet: true`) and localhost are unaffected. Prevents a malicious bridge from injecting an insecure RPC endpoint.
+- `encryptBalance()`, `decryptBalance()`, `sendPrivateTransfer()`, and `callContract()` now throw `INVALID_AMOUNT` when a numeric amount cannot be represented exactly in micro-OCT (6 decimal places). Pass a string (e.g. `"0.300000"`) for exact control.
+- **Docs:** `ContractCallData.amount` JSDoc corrected: field is OCT, not micro-units. No behavior change.
 
 ### Added
 
-- **`OctraProviderAdapter`** (`src/supports/octra-provider.ts`): RFC-O-1 compliant transport adapter that uses `window.octra.request()` instead of the postMessage bridge. Detects any wallet exposing `window.octra.isOctra === true`. Translates SDK method names to RFC-O-1 method names (`send_transaction` → `octra_sendTransaction`, etc.) and maps events back to SDK vocabulary. Registered second in the adapter registry — existing DApps using the postMessage bridge are unaffected.
+- **`OctraProviderAdapter`** (`src/supports/octra-provider.ts`): RFC-O-1 compliant transport adapter that uses `window.octra.request()` instead of the postMessage bridge. Detects any wallet exposing `window.octra.isOctra === true`. Translates SDK method names to RFC-O-1 method names (`send_transaction` to `octra_sendTransaction`, etc.) and maps events back to SDK vocabulary. Registered second in the adapter registry: existing DApps using the postMessage bridge are unaffected.
 - **`listenForReady`** in `OctraProviderAdapter` now also listens for `octra#initialized` CustomEvent (dispatched by 0xio extension v2.4.3+) in addition to `octraWalletReady`, ensuring the provider is detected immediately on page load.
 
 ### Fixed
@@ -23,7 +57,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 ### Compatibility
 
-- No breaking changes — `ZeroXIOAdapter` (postMessage bridge) remains the default and takes priority when `window.wallet0xio` is present
+- No breaking changes: `ZeroXIOAdapter` (postMessage bridge) remains the default and takes priority when `window.wallet0xio` is present
 - Old DApps work unchanged; new DApps can opt into `OctraProviderAdapter` explicitly or via `detectWalletAdapter()`
 - Requires 0xio Wallet Extension v2.4.3+ for `octra#initialized` event; falls back to `octraWalletReady` on older versions
 
@@ -32,18 +66,18 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 ### Security (post-audit remediation)
 
 **Transport hardening:**
-- Session nonce validation on all bridge responses — blocks same-origin impersonation
-- Removed wildcard `'*'` postMessage fallback — parent only addressed once origin established
-- Removed `Math.random()` fallback for request IDs — throws if `crypto` unavailable
+- Session nonce validation on all bridge responses: blocks same-origin impersonation
+- Removed wildcard `'*'` postMessage fallback: parent only addressed once origin established
+- Removed `Math.random()` fallback for request IDs: throws if `crypto` unavailable
 - `requestTimestamps` capped to prevent unbounded growth in idle tabs
 - Removed legacy `octraWalletReady` listeners and `createOctraWallet` alias
 
 ### Added
 
 - **Pluggable wallet adapter system** (`src/adapter.ts`, `src/supports/`):
-  - `WalletTransportAdapter` interface — add support for any wallet without touching core SDK
-  - `src/supports/0xio.ts` — built-in adapter with session nonce + iframe bridge support
-  - `src/supports/template.ts` — starter template for new adapters
+  - `WalletTransportAdapter` interface: add support for any wallet without touching core SDK
+  - `src/supports/0xio.ts`: built-in adapter with session nonce + iframe bridge support
+  - `src/supports/template.ts`: starter template for new adapters
   - `detectWalletAdapter()` auto-detect helper
   - Exported: `WalletTransportAdapter`, `AdapterRequest`, `AdapterIncomingMessage`, `ZeroXIOAdapter`, `createZeroXIOAdapter`, `detectWalletAdapter`, `getAllAdapters`
 
@@ -55,24 +89,24 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 - No breaking changes to `ZeroXIOWallet` public API
 
 **SDK fixes:**
-- Session versioning — `_sessionVersion` counter prevents stale writes from in-flight requests after disconnect/account switch
-- Debug log scrubbing — only non-sensitive fields logged (`{ to }`, `{ contract, method }`, `{ public }`)
+- Session versioning: `_sessionVersion` counter prevents stale writes from in-flight requests after disconnect/account switch
+- Debug log scrubbing: only non-sensitive fields logged (`{ to }`, `{ contract, method }`, `{ public }`)
 - Removed `retry()` and `withTimeout()` from public API export
-- Per-method payload size limits — method names ≤ 200 chars, params ≤ 64 KB, memos ≤ 1,000 chars
+- Per-method payload size limits: method names ≤ 200 chars, params ≤ 64 KB, memos ≤ 1,000 chars
 - Input validation at all mutating method entry points (`isValidAddress()`, `isValidAmount()`)
-- Added `signAuthMessage(service, nonce)` — domain-separated auth signing with origin binding
-- Amount types accept `string | number` — eliminates JS precision loss for large values
-- Added `deriveOctraAddress(publicKeyBase64)` — `connect()` and `getConnectionStatus()` verify pubkey→addr binding
+- Added `signAuthMessage(service, nonce)`: domain-separated auth signing with origin binding
+- Amount types accept `string | number`: eliminates JS precision loss for large values
+- Added `deriveOctraAddress(publicKeyBase64)`: `connect()` and `getConnectionStatus()` verify pubkey to addr binding
 - `encrypt/decryptBalance()` return full `TransactionResult` (was boolean)
 - `contractCallView` no longer leaks connected address as default caller
 - `balanceChanged` emits on public/private split change (not just total)
-- `once()` removes listener before invoke — throwing listeners no longer re-fire
+- `once()` removes listener before invoke: throwing listeners no longer re-fire
 - `extensionLocked`/`extensionUnlocked` events emitted (were suppressed)
 - Permissions stored in `ConnectionInfo` and survive session restore
 - `connectedAt` preserved across `getConnectionStatus()` polls
-- `connect` event only emits on disconnected→connected transition
+- `connect` event only emits on disconnected to connected transition
 - `NETWORKS` frozen + `getNetworkConfig()` returns frozen copies
-- `validateBalance()` uses `Number()` not `parseFloat()` — rejects partial numerics
+- `validateBalance()` uses `Number()` not `parseFloat()`: rejects partial numerics
 - `validateNetworkInfo()` rejects empty rpcUrl (except custom network)
 - `switchNetwork()` requires active connection
 - `checkSDKCompatibility()` no longer falsely flags non-Chrome transports
@@ -85,7 +119,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 - **`claimPrivateTransfer(transferId)`**: Claim a pending private transfer, adding it to the wallet's encrypted balance.
 
 ### Changed
-- Privacy transfer methods no longer return NOT_AVAILABLE — fully wired to extension v2.4.0+
+- Privacy transfer methods no longer return NOT_AVAILABLE: fully wired to extension v2.4.0+
 - Updated JSDoc for all privacy methods with PVAC flow description
 
 ### Compatibility
@@ -96,7 +130,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 ## [2.5.0] - 2026-05-10
 
 ### Added
-- **`switchNetwork(networkId)`**: Silently switch the extension's active network without opening the popup. Works like Rabby's `wallet_switchEthereumChain` — DApps can detect network mismatch and offer one-click switch.
+- **`switchNetwork(networkId)`**: Silently switch the extension's active network without opening the popup. Works like Rabby's `wallet_switchEthereumChain`: DApps can detect network mismatch and offer one-click switch.
 - **`getNetworkId()`**: Returns the extension's current network ID ('mainnet' or 'devnet').
 - DApps can now detect + switch network programmatically, enabling network-aware UIs.
 
@@ -116,7 +150,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 ### Changed
 - **Connect response enriched**: Extension now returns `networkInfo` (id, name, rpcUrl, color, isTestnet) and `permissions` array in both fresh connect and reconnect responses.
 - **Network info complete**: `getNetworkInfo` response now includes `explorerUrl`, `explorerAddressUrl`, `indexerUrl`, `supportsPrivacy`, `isTestnet` fields.
-- **networkInfo fallback chain**: SDK tries `result.networkInfo` → `getNetworkConfig(result.networkId)` → `getNetworkConfig(this.config.networkId)`.
+- **networkInfo fallback chain**: SDK tries `result.networkInfo`, then `getNetworkConfig(result.networkId)`, then `getNetworkConfig(this.config.networkId)`.
 
 ### Compatibility
 - Requires 0xio Wallet Extension v2.3.5+ for full alignment
@@ -192,7 +226,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 - Extension content script messages continue to use strict origin validation
 
 ### Compatibility
-- Fully backward compatible — extension-based DApps work unchanged
+- Fully backward compatible: extension-based DApps work unchanged
 - Desktop (0xio Desktop): DApps loaded in BrowserScreen iframe now auto-connect
 - Mobile (0xio App): DApps loaded in WebView browser now auto-connect via existing bridge
 - Mainnet Alpha: Extension v2.0.1+
@@ -203,7 +237,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 ## [2.3.0] - 2026-03-10
 
 ### Added
-- **Smart Contract Interaction**: New `callContract()` method for state-changing contract calls. The extension builds, signs, and submits via `octra_submit` — works on both mainnet and devnet.
+- **Smart Contract Interaction**: New `callContract()` method for state-changing contract calls. The extension builds, signs, and submits via `octra_submit`: works on both mainnet and devnet.
 - **Contract View Calls**: New `contractCallView()` method for read-only contract queries. No wallet unlock or approval popup required.
 - **Contract Storage**: New `getContractStorage()` method to read contract storage by key directly from the chain.
 - **New Types**: `ContractCallData`, `ContractViewCallData`, and `ContractParams` for type-safe contract interaction.
@@ -256,13 +290,13 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 ### Added
 - **Transaction Finality**: New `TransactionFinality` type (`'pending' | 'confirmed' | 'rejected'`) and `finality` field on `TransactionResult` and `Transaction` interfaces.
 - **RPC Error Codes**: 7 new `ErrorCode` entries for RPC-level transaction errors from `octra_submit` and `octra_submitBatch`:
-  - `MALFORMED_TRANSACTION` — Transaction is malformed
-  - `SELF_TRANSFER` — Cannot transfer to yourself
-  - `SENDER_NOT_FOUND` — Sender address not found
-  - `INVALID_SIGNATURE` — Invalid transaction signature
-  - `DUPLICATE_TRANSACTION` — Duplicate transaction detected
-  - `NONCE_TOO_FAR` — Transaction nonce is too far ahead
-  - `INTERNAL_ERROR` — Internal server error
+  - `MALFORMED_TRANSACTION`: Transaction is malformed
+  - `SELF_TRANSFER`: Cannot transfer to yourself
+  - `SENDER_NOT_FOUND`: Sender address not found
+  - `INVALID_SIGNATURE`: Invalid transaction signature
+  - `DUPLICATE_TRANSACTION`: Duplicate transaction detected
+  - `NONCE_TOO_FAR`: Transaction nonce is too far ahead
+  - `INTERNAL_ERROR`: Internal server error
 - **Error Messages**: All new error codes have corresponding human-readable messages in `createErrorMessage()`.
 
 ### Fixed
@@ -340,8 +374,8 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 ### Breaking Changes
 - **Rebranded message sources**: Changed from `octra-sdk-*` to `0xio-sdk-*` for consistency with 0xio branding
-  - `octra-sdk-request` → `0xio-sdk-request`
-  - `octra-sdk-bridge` → `0xio-sdk-bridge`
+  - `octra-sdk-request` to `0xio-sdk-request`
+  - `octra-sdk-bridge` to `0xio-sdk-bridge`
 - This is a breaking change that requires wallet extension v2.0+ for compatibility
 
 ### Changed
@@ -349,7 +383,7 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 - Changed author from "NullxGery" to "0xio Team"
 - Updated author email from "0xgery@proton.me" to "team@0xio.xyz"
 - Updated repository URL from `0xGery/0xio-sdk` to `0xio-xyz/0xio-sdk`
-- Updated keywords: "0xio" → "0xio wallet", added "octra wallet"
+- Updated keywords: "0xio" to "0xio wallet", added "octra wallet"
 - Author URL changed to organization: `https://github.com/0xio-xyz`
 
 ### Migration Guide
@@ -408,8 +442,8 @@ This is the first stable release of the 0xio Wallet SDK, a comprehensive bridge 
 - **Professional code refactoring**: All files now include comprehensive JSDoc documentation
 
 ### Package Changes
-- **Package renamed**: `@0xgery/wallet-sdk` → `@0xio/sdk`
-- **Version bump**: 0.2.1 → 1.0.0 (production-ready)
+- **Package renamed**: `@0xgery/wallet-sdk` to `@0xio/sdk`
+- **Version bump**: 0.2.1 to 1.0.0 (production-ready)
 - **Repository**: Published to https://github.com/0xGery/0xio-sdk
 - **Homepage**: https://0xio.xyz
 
@@ -425,7 +459,7 @@ This is the first stable release of the 0xio Wallet SDK, a comprehensive bridge 
 - Complete integration examples (React, Vue, Vanilla JS)
 
 ### Technical Improvements
-- **JSDoc coverage**: 0% → 95%
+- **JSDoc coverage**: 0% to 95%
 - **Code quality**: Refactored all functions to <30 lines
 - **Error handling**: Enhanced with detailed context and diagnostics
 - **TypeScript**: Full type safety with comprehensive type definitions
