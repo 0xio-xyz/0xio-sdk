@@ -31,17 +31,22 @@ export interface NetworkInfo {
 // Transaction types
 export interface TransactionData {
   readonly to: string;
-  /** Amount in OCT. Accepts string or number — use string for amounts above 9 billion OCT to avoid JS number precision loss. */
-  readonly amount: string | number;
+  /**
+   * Raw amount in micro-OCT (1 OCT = 1000000), passed to the wallet unchanged. This is what
+   * the wallet and the RFC-O-1 provider expect. Prefer `amountOct` when you think in OCT.
+   */
+  readonly amount?: string | number;
+  /** Amount in OCT. The SDK converts it to raw units exactly (at most 6 decimals). Use this or `amount`, not both. */
+  readonly amountOct?: string | number;
   readonly message?: string;
   readonly feeLevel?: 1 | 3; // 1 = standard, 3 = priority
   readonly isPrivate?: boolean;
 }
 
 /**
- * Contract method arguments — flat array of AML-compatible values.
+ * Contract method arguments: flat array of AML-compatible values.
  * Supports primitives and base64-encoded binary data (e.g. FHE ciphers, proofs).
- * Use `[arg1, arg2]` NOT `[[arg1, arg2]]` — flat, not nested.
+ * Use `[arg1, arg2]`, not `[[arg1, arg2]]`: flat, not nested.
  */
 export type ContractParam = string | number | boolean;
 export type ContractParams = ReadonlyArray<ContractParam>;
@@ -52,16 +57,18 @@ export interface ContractCallData {
   /** Contract method name (e.g. 'swap', 'open_private_account') */
   readonly method: string;
   /**
-   * Method arguments — flat primitives, NOT array-wrapped.
+   * Method arguments: flat primitives, not array-wrapped.
    * For FHE/PVAC operations, encode binary data as base64 strings:
    * `[base64(pvacPubkey), base64(zeroCipher), base64(zeroProof)]`
    */
   readonly params: ContractParams;
   /**
-   * Native OCT to send with the call (in OCT, same unit as sendTransaction.amount).
-   * Set to '0' for calls that don't transfer native tokens.
+   * Native value to attach, in raw micro-OCT (1 OCT = 1000000), passed to the wallet unchanged.
+   * Omit or set '0' for calls that transfer nothing. Prefer `amountOct` when you think in OCT.
    */
   readonly amount?: string | number;
+  /** Value to attach in OCT. The SDK converts it to raw units exactly. Use this or `amount`, not both. */
+  readonly amountOct?: string | number;
   /**
    * Operation units / gas limit (default: 10000).
    * Higher values for complex contract operations.
@@ -75,7 +82,7 @@ export interface ContractViewCallData {
   readonly contract: string;
   /** Contract method name (e.g. 'balance_of', 'get_active_bin', 'is_paused') */
   readonly method: string;
-  /** Method arguments — flat primitives, NOT array-wrapped */
+  /** Method arguments: flat primitives, not array-wrapped */
   readonly params: ContractParams;
   /** Caller address for view context (defaults to connected wallet) */
   readonly caller?: string;
@@ -122,7 +129,7 @@ export interface Transaction {
   readonly hash: string;
   readonly from: string;
   readonly to: string;
-  /** Amount in OCT as returned by the node (may be string or number depending on extension version). */
+  /** Amount in raw micro-OCT as returned by the node (string or number depending on the wallet version). */
   readonly amount: string | number;
   /** Fee in OCT as returned by the node (may be string or number depending on extension version). */
   readonly fee: string | number;
@@ -153,6 +160,14 @@ export interface ConnectOptions {
 }
 
 export type Permission =
+  // Wallet scope names (see WALLET_PERMISSIONS)
+  | 'accounts'
+  | 'public_transactions'
+  | 'contract_views'
+  | 'private_balance_read'
+  | 'private_proofs'
+  | 'private_claims'
+  // Older SDK names, mapped to the scopes above at connect
   | 'read_address'
   | 'read_balance'
   | 'read_public_key'
@@ -175,6 +190,7 @@ export type WalletEventType =
   | 'balanceChanged'
   | 'networkChanged'
   | 'transactionConfirmed'
+  | 'transactionFailed'
   | 'permissionsChanged'
   | 'message'
   | 'error'
@@ -249,7 +265,17 @@ export enum ErrorCode {
   INVALID_SIGNATURE = 'INVALID_SIGNATURE',
   DUPLICATE_TRANSACTION = 'DUPLICATE_TRANSACTION',
   NONCE_TOO_FAR = 'NONCE_TOO_FAR',
-  INTERNAL_ERROR = 'INTERNAL_ERROR'
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  // Codes the 0xio wallet returns over the bridge
+  NOT_CONNECTED = 'NOT_CONNECTED',
+  INVALID_PARAMS = 'INVALID_PARAMS',
+  METHOD_NOT_ALLOWED = 'METHOD_NOT_ALLOWED',
+  NOT_AVAILABLE = 'NOT_AVAILABLE',
+  PRIVATE_PROOF_FAILED = 'PRIVATE_PROOF_FAILED',
+  PRIVATE_TRANSFER_FAILED = 'PRIVATE_TRANSFER_FAILED',
+  CONTRACT_CALL_FAILED = 'CONTRACT_CALL_FAILED',
+  SIGN_FAILED = 'SIGN_FAILED',
+  RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED'
 }
 
 export class ZeroXIOWalletError extends Error {
@@ -272,13 +298,22 @@ export interface PrivateBalanceInfo {
 
 export interface PrivateTransferData {
   readonly to: string;
-  /** Amount in OCT. Accepts string or number — use string for amounts above 9 billion OCT to avoid JS number precision loss. */
+  /** Amount in OCT. Accepts string or number. Use string for amounts above 9 billion OCT to avoid JS number precision loss. */
   readonly amount: string | number;
+  /** Exact amount in raw micro-OCT. When set, it is what the wallet uses; `amount` is then display only. */
+  readonly amountRaw?: string;
+  /** Not carried by the wallet today; private transfers have no memo on-chain. */
   readonly message?: string;
 }
 
+/**
+ * A claimable stealth output as the wallet returns it. The 0xio extension fills `id` and
+ * `amount` (raw micro-OCT) from the node; the other fields depend on the wallet.
+ */
 export interface PendingPrivateTransfer {
   readonly id: string;
+  /** Raw micro-OCT, when the wallet exposes the amount. */
+  readonly amount?: number | string;
   readonly from: string;
   readonly encryptedAmount: string;
   readonly message?: string;
@@ -298,7 +333,7 @@ export interface SDKConfig {
   readonly debug?: boolean;
   /**
    * Exact origins allowed as parent iframe bridge (e.g. 'https://app.example.com').
-   * When set, only these origins (plus tauri://) are trusted — implicit localhost trust
+   * When set, only these origins (plus tauri://) are trusted: implicit localhost trust
    * is disabled. Leave unset for development (all localhost trusted by default).
    */
   readonly trustedParentOrigins?: string[];

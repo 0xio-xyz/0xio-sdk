@@ -28,11 +28,20 @@ export { ZeroXIOWallet } from './wallet';
 export { EventEmitter } from './events';
 export { ExtensionCommunicator } from './communication';
 
-// Adapter exports — implement WalletTransportAdapter to add new wallet support
+// Adapter exports: implement WalletTransportAdapter to add new wallet support
 export type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from './adapter';
 export { ZeroXIOAdapter, createZeroXIOAdapter } from './supports/0xio';
 export { OctraProviderAdapter, createOctraProviderAdapter } from './supports/octra-provider';
 export { detectWalletAdapter, getAllAdapters } from './supports';
+
+// Permission names: the wallet's scopes, the older SDK names, and the translation between them
+export {
+  WALLET_PERMISSIONS,
+  LEGACY_PERMISSION_MAP,
+  toWalletPermissions,
+  withLegacyAliases,
+} from './permissions';
+export type { WalletPermission } from './permissions';
 
 // Type exports
 export type {
@@ -116,6 +125,7 @@ export {
   // Conversion utilities
   toMicroOCT,
   toMicroOCT as toMicroZeroXIO,
+  octToMicro,
   fromMicroOCT,
   fromMicroOCT as fromMicroZeroXIO,
 
@@ -135,8 +145,17 @@ export {
   createLogger
 } from './utils';
 
+// Message-signing standard (0xio Signed Message v1)
+export {
+  SIGNED_MESSAGE_PREFIX,
+  SIGNED_MESSAGE_VERSION,
+  getSignedMessageBytes,
+  buildAuthMessage,
+  verifyMessage
+} from './signing';
+
 // Version information
-export const SDK_VERSION = '2.7.1';
+export const SDK_VERSION = '2.8.0';
 export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
 export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
 export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
@@ -181,7 +200,7 @@ export function checkSDKCompatibility(): {
   const issues: string[] = [];
   const recommendations: string[] = [];
 
-  // Hard blockers — SDK cannot function without these
+  // Hard blockers: the SDK cannot function without these
   if (typeof window === 'undefined') {
     issues.push('Window object not available');
     recommendations.push('SDK must be used in a browser environment');
@@ -258,7 +277,7 @@ if (typeof window !== 'undefined') {
         debugMode: !!(window as any).__ZEROXIO_SDK_DEBUG__,
         environment: isDevelopment ? 'development' : 'production'
       }),
-      // simulateExtensionEvent removed for security — could be exploited on staging builds
+      // simulateExtensionEvent removed for security: it could be exploited on staging builds
       showWelcome: () => {
         console.log(`[0xio SDK] Development mode - SDK v${SDK_VERSION}`);
         console.log('[0xio SDK] Debug utilities available at window.__ZEROXIO_SDK_UTILS__');

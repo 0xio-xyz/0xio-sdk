@@ -1,5 +1,5 @@
 /**
- * 0xio SDK — Wallet Transport Adapter Interface
+ * 0xio SDK: Wallet Transport Adapter Interface
  *
  * Implement WalletTransportAdapter to add support for a new wallet without
  * touching any core SDK code. Drop the adapter file in src/supports/ and
@@ -18,7 +18,7 @@
  */
 
 /**
- * Outbound request — the SDK passes this to adapter.postRequest() for every
+ * Outbound request: the SDK passes this to adapter.postRequest() for every
  * outbound wallet call. Adapters translate this into their wallet-specific wire format.
  */
 export interface AdapterRequest {
@@ -67,8 +67,8 @@ export interface AdapterIncomingMessage {
  * - How to send requests (postRequest)
  * - How to receive responses and events (listen)
  *
- * Everything else — request lifecycle, timeouts, retries, rate limiting,
- * event routing — is handled by the SDK core and does not change per wallet.
+ * Everything else (request lifecycle, timeouts, retries, rate limiting,
+ * event routing) is handled by the SDK core and does not change per wallet.
  *
  * @example Minimal adapter for a hypothetical wallet
  * ```typescript
@@ -110,7 +110,7 @@ export interface WalletTransportAdapter {
 
   /**
    * Send a request to the wallet.
-   * Called once per outbound request — translate AdapterRequest into your
+   * Called once per outbound request: translate AdapterRequest into your
    * wallet's wire format and post it (window.postMessage, direct API call, etc.).
    */
   postRequest(request: AdapterRequest): void;
@@ -129,7 +129,7 @@ export interface WalletTransportAdapter {
    *
    * @param handler  Callback for responses and push events
    * @param options  SDK-level options, e.g. additional trusted parent origins
-   * @returns        A teardown function — the SDK calls it on cleanup()
+   * @returns        A teardown function. The SDK calls it on cleanup()
    */
   listen(
     handler: (msg: AdapterIncomingMessage) => void,

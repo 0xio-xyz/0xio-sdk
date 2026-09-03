@@ -19,7 +19,7 @@ const _NETWORKS: Record<string, NetworkInfo> = {
   'devnet': {
     id: 'devnet',
     name: 'Octra Devnet',
-    rpcUrl: 'http://165.227.225.79:8080',
+    rpcUrl: 'https://devnet.octrascan.io',
     explorerUrl: 'https://devnet.octrascan.io/tx.html?hash=',
     explorerAddressUrl: 'https://devnet.octrascan.io/address.html?addr=',
     indexerUrl: 'https://devnet.octrascan.io',
@@ -52,7 +52,7 @@ export const DEFAULT_NETWORK_ID = 'mainnet';
 
 /**
  * Get network configuration by ID.
- * Returns a frozen copy — callers cannot mutate SDK-internal state.
+ * Returns a frozen copy, so callers cannot mutate SDK-internal state.
  */
 export function getNetworkConfig(networkId: string = DEFAULT_NETWORK_ID): NetworkInfo {
   if (!Object.prototype.hasOwnProperty.call(_NETWORKS, networkId)) {
@@ -63,7 +63,7 @@ export function getNetworkConfig(networkId: string = DEFAULT_NETWORK_ID): Networ
 
 /**
  * Get all available networks.
- * Returns frozen copies — callers cannot mutate SDK-internal state.
+ * Returns frozen copies, so callers cannot mutate SDK-internal state.
  */
 export function getAllNetworks(): NetworkInfo[] {
   return Object.values(_NETWORKS).map(n => Object.freeze({ ...n }));

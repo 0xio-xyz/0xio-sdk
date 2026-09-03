@@ -27,7 +27,7 @@ export function isValidAmount(amount: string | number): boolean {
 }
 
 export function isValidMessage(message: string): boolean {
-  // Type check first — falsy non-strings (0, false, null) are NOT valid messages
+  // Type check first: falsy non-strings (0, false, null) are not valid messages
   if (typeof message !== 'string') {
     return message === undefined || message === null ? true : false;
   }
@@ -37,7 +37,7 @@ export function isValidMessage(message: string): boolean {
     return true;
   }
 
-  // 100KB limit — contract call params can be large (serialized JSON)
+  // 100KB limit: contract call params can be large (serialized JSON)
   return message.length <= 100_000;
 }
 
@@ -73,7 +73,7 @@ function _base58Encode(buf: Uint8Array): string {
 
 /**
  * Derive the canonical Octra address from a base64-encoded Ed25519 public key.
- * Algorithm: SHA-256(pubkey_bytes) → base58 → prepend "oct"
+ * Algorithm: SHA-256 of the pubkey bytes, base58-encoded, with "oct" prepended
  * Source of truth: ocho-push-server/src/index.ts#deriveAddressFromPubkey
  */
 export async function deriveOctraAddress(publicKeyBase64: string): Promise<string> {
@@ -147,6 +147,26 @@ export function toMicroOCT(amount: number): string {
   return microOCT.toString();
 }
 
+/**
+ * Exact OCT to raw micro-OCT conversion using string arithmetic (no float rounding).
+ * Accepts up to 6 decimals; anything else is rejected.
+ */
+export function octToMicro(amount: string | number): string {
+  const text = typeof amount === 'number' ? amount.toFixed(6) : String(amount).trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(text)) {
+    throw new ZeroXIOWalletError(
+      ErrorCode.INVALID_AMOUNT,
+      'Amount must be a positive decimal with at most 6 places'
+    );
+  }
+  const [whole, frac = ''] = text.split('.');
+  const micro = BigInt(whole) * BigInt(1000000) + BigInt(frac.padEnd(6, '0'));
+  if (micro <= BigInt(0)) {
+    throw new ZeroXIOWalletError(ErrorCode.INVALID_AMOUNT, 'Amount must be greater than zero');
+  }
+  return micro.toString();
+}
+
 export function fromMicroOCT(microAmount: string | number): number {
   const amount = typeof microAmount === 'string' ? parseInt(microAmount, 10) : microAmount;
 
@@ -181,7 +201,16 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.INVALID_SIGNATURE]: 'Invalid transaction signature',
     [ErrorCode.DUPLICATE_TRANSACTION]: 'Duplicate transaction detected',
     [ErrorCode.NONCE_TOO_FAR]: 'Transaction nonce is too far ahead',
-    [ErrorCode.INTERNAL_ERROR]: 'Internal server error'
+    [ErrorCode.INTERNAL_ERROR]: 'Internal server error',
+    [ErrorCode.NOT_CONNECTED]: 'Connect the wallet before this request',
+    [ErrorCode.INVALID_PARAMS]: 'Invalid request parameters',
+    [ErrorCode.METHOD_NOT_ALLOWED]: 'This method is not permitted through the wallet',
+    [ErrorCode.NOT_AVAILABLE]: 'Not available through the wallet bridge',
+    [ErrorCode.PRIVATE_PROOF_FAILED]: 'Private proof generation failed',
+    [ErrorCode.PRIVATE_TRANSFER_FAILED]: 'Private transfer failed',
+    [ErrorCode.CONTRACT_CALL_FAILED]: 'Contract call failed',
+    [ErrorCode.SIGN_FAILED]: 'Signing failed',
+    [ErrorCode.RECIPIENT_NOT_REGISTERED]: 'Recipient has no private view key registered'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';
@@ -211,7 +240,7 @@ export async function retry<T>(
     } catch (error) {
       lastError = error as Error;
 
-      // Never retry user rejections — these are intentional
+      // Never retry user rejections, they are intentional
       const msg = lastError.message?.toLowerCase() || '';
       if (msg.includes('rejected') || msg.includes('denied') || msg.includes('cancelled') || msg.includes('user refused')) {
         throw lastError;

@@ -3,7 +3,7 @@
  *
  * Targets any wallet that exposes `window.octra` per the RFC-O-1 specification:
  *   window.octra.isOctra === true
- *   window.octra.request({ method, params }) → Promise<unknown>
+ *   window.octra.request({ method, params }) returns Promise<unknown>
  *   window.octra.on(event, listener) / removeListener(event, listener)
  *
  * This adapter translates the SDK's internal method names into RFC-O-1 method
@@ -15,7 +15,7 @@
 
 import type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from '../adapter';
 
-/** SDK method → RFC-O-1 method name */
+/** SDK method to RFC-O-1 method name */
 const SDK_TO_RFC: Record<string, string> = {
   get_network_info: 'octra_networkInfo',
   switch_network: 'octra_switchNetwork',
@@ -30,9 +30,17 @@ const SDK_TO_RFC: Record<string, string> = {
   decrypt_balance: 'octra_decryptBalance',
   send_private_transfer: 'octra_sendPrivateTransfer',
   claim_private_transfer: 'octra_claimStealth',
+  get_private_capabilities: 'octra_getPrivateCapabilities',
+  encrypt_value: 'octra_encryptValue',
+  decrypt_value: 'octra_decryptValue',
+  make_zero_proof: 'octra_makeZeroProof',
+  make_range_proof: 'octra_makeRangeProof',
+  get_private_balance: 'octra_getPrivateBalance',
+  register_private_view_key: 'octra_registerPrivateViewKey',
+  send_contract_transaction_sequence: 'octra_sendContractTransactionSequence',
 };
 
-/** RFC-O-1 error code → SDK ErrorCode string */
+/** RFC-O-1 error code to SDK ErrorCode string */
 const RFC_TO_SDK_ERROR: Record<number, string> = {
   4001: 'USER_REJECTED',
   4100: 'PERMISSION_DENIED',
@@ -149,7 +157,7 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
       const provider = getProvider();
       if (!provider) return () => { _handler = null; };
 
-      // RFC-O-1 event → SDK event name + data shape
+      // RFC-O-1 event to SDK event name and data shape
       const onConnect = (data: any) =>
         handler({ eventType: 'connect', eventData: data });
       const onDisconnect = (data: any) =>

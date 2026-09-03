@@ -1,386 +1,210 @@
 # 0xio Wallet SDK
 
-**Version:** 2.7.1
+**Version 2.8.0**
 
-Official TypeScript SDK for integrating DApps with 0xio Wallet on Octra Network.
+The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
-## What's New in v2.7.0
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md). The full API is in [DOCUMENTATION.md](DOCUMENTATION.md).
 
-Security hardening release (post-audit remediation):
-- **MessageChannel transport** (H-2 fix): Extension now uses a private `MessageChannel` port instead of `window.postMessage`, preventing page scripts from intercepting or injecting wallet messages. SDK validates a per-session nonce on every response.
-- **Pluggable wallet adapters**: New `src/supports/` system — implement `WalletTransportAdapter` and drop a file in `supports/` to add any wallet without touching core SDK code. See `src/supports/template.ts` for the starting point.
-- Fixed wildcard postMessage target leaking request payloads to any origin (HIGH)
-- Removed `Math.random()` fallback for request IDs — throws if `crypto` unavailable (MEDIUM)
-- Fixed `requestTimestamps` unbounded memory growth in idle tabs (LOW)
-- Removed all `octraWalletReady` legacy event listeners and `createOctraWallet` alias (LOW)
-- Extension fixes: balance/network events now delivered end-to-end; `accountChanged` on wallet switch; exact hostname tab matching; approval listener spoofing from content scripts blocked
-- All 17 post-audit findings resolved. See `AUDIT_REMEDIATION.md` for full details.
-
-## What's New in v2.6.0
-
-- **`sendPrivateTransfer(to, amount)`**: Send encrypted (stealth) transfers — amount is hidden from everyone except sender and recipient. Uses PVAC-HFHE for ciphertext subtraction + zero-knowledge proofs. The node re-encrypts under the recipient's key.
-- **`getPendingPrivateTransfers()`**: List incoming private transfers claimable by your wallet.
-- **`claimPrivateTransfer(transferId)`**: Claim a pending private transfer into your encrypted balance.
-- **Privacy-first DApps**: Build prediction markets, private payments, stealth bets — all amounts stay encrypted on-chain.
-- Requires 0xio Wallet Extension v2.4.0+
-
-## v2.5.0
-
-- **`switchNetwork(networkId)`**: Switch the extension's network silently — no popup, no user action. DApps can detect network mismatch and offer one-click switch (like Rabby).
-- **`getNetworkId()`**: Get the extension's current active network.
-- **Network-aware DApps**: Detect if user is on mainnet vs devnet, show banner, switch with one click.
-
-## v2.4.5
-
-- **Correct network detection**: SDK reads active network from extension instead of hardcoding mainnet.
-- **Full networkInfo in connect response**: Extension returns complete network config.
-- **Live balance on reconnect**: Fresh balance from chain instead of stale cached zeros.
-- **Transaction history**: Real on-chain transactions with pagination.
-- **Event alignment**: `transactionConfirmed` event fires correctly.
-
-## v2.4.4
-
-- **Fix double popup on timeout**: Transaction/signing methods no longer retry, preventing duplicate approval popups.
-- **120s timeout for interactive methods**: Users have 2 minutes to review and approve transactions.
-
-## v2.4.2
-
-- **Cross-origin iframe bridge**: Localhost origins now accepted as trusted parents for dev/testing DApp browser scenarios.
-- **Parent origin capture**: `walletReady` signal carries `parentOrigin` for reliable cross-origin reply targeting.
-- **postMessage fix**: Replies to parent frame use captured origin instead of `window.location.origin` (which fails cross-port).
-
-## v2.4.1
-
-- **No retry on user rejection**: Transactions, contract calls, and sign requests rejected by the user no longer trigger automatic retry. Prevents double confirmation popups.
-- **Security hardening**: postMessage origin validation, removed iframe auto-trust, response ID binding.
-- **Type fixes**: Replaced `NodeJS.Timeout` with `ReturnType<typeof setTimeout>` for browser compatibility.
-
-## v2.4.0
-
-- **Desktop/Mobile DApp Bridge**: SDK now supports running inside iframes (0xio Desktop) and WebViews (0xio App). Requests are relayed to the parent frame automatically.
-- **Auto Frame Detection**: When `window.parent !== window`, the SDK assumes a wallet bridge is available and marks the wallet as detected.
-- **Frame-Aware Messaging**: `postMessageToExtension()` posts to both `window` and `window.parent` when running inside a frame; `setupMessageListener()` accepts messages from `window.parent`.
-- **walletReady via postMessage**: Extension detection now recognizes `walletReady` events from parent frames.
-- **Fully backward compatible** — extension-based DApps work unchanged with no code changes needed.
-
-## Installation
+## Install
 
 ```bash
 npm install @0xio/sdk
 ```
 
-## Quick Start
+## Quick start
 
 ```typescript
 import { ZeroXIOWallet } from '@0xio/sdk';
 
-// 1. Initialize
 const wallet = new ZeroXIOWallet({
   appName: 'My DApp',
-  requiredPermissions: ['read_balance', 'sign_messages']
+  requiredPermissions: ['accounts', 'public_transactions'],
 });
 
 await wallet.initialize();
 
-// 2. Connect
+// Connect. The wallet shows an approval the first time.
 const connection = await wallet.connect();
-console.log('Connected:', connection.address);
-console.log('Public Key:', connection.publicKey); // Base64 Ed25519 key
+console.log(connection.address);
+console.log(connection.publicKey); // base64 Ed25519 key
 
-// 3. Get Balance
+// Balance, in OCT.
 const balance = await wallet.getBalance();
-console.log('Total:', balance.total, 'OCT');
+console.log(balance.public, balance.private, balance.total);
 
-// 4. Sign a Message
+// Sign a message. The wallet frames it (see Message signing below).
 const signature = await wallet.signMessage('Hello, 0xio!');
-console.log('Signature:', signature);
 
-// 5. Send Transaction
+// Send 10.5 OCT.
 const result = await wallet.sendTransaction({
   to: 'oct1recipient...',
-  amount: 10.5,
-  message: 'Payment'
+  amountOct: '10.5',
+  message: 'Payment',
 });
-console.log('TX Hash:', result.txHash);
+console.log(result.hash);
 ```
 
-## API Reference
+## Amounts and units
 
-### Connection
+The wallet counts in raw micro-OCT: one OCT is 1000000 units. Every raw field is passed to the wallet exactly as you give it, so existing integrations keep working. Where you would rather write OCT, use the OCT field and the SDK converts it with exact decimal arithmetic.
 
-#### `wallet.initialize(): Promise<boolean>`
-Initialize the SDK. Must be called first.
+| Method | Raw field (sent as is) | OCT field (converted by the SDK) |
+|--------|------------------------|----------------------------------|
+| `sendTransaction`, `signTransaction` | `amount` | `amountOct` |
+| `callContract` | `amount` | `amountOct` |
+| `sendPrivateTransfer` | `amountRaw` | `amount` |
+| `getBalance` | | returns OCT |
 
-#### `wallet.connect(options?): Promise<ConnectEvent>`
-Connect to the user's wallet. Shows approval popup if first time.
+Pass one field or the other, not both. A number that cannot be written in six decimals (such as `0.1 + 0.2`) is rejected; pass a string.
 
-#### `wallet.disconnect(): Promise<void>`
-Disconnect from the wallet.
+## Permissions
 
-#### `wallet.isConnected(): boolean`
-Check if currently connected.
+Ask for what the dapp uses. The wallet enforces these names:
 
-### Balance
+| Scope | Grants |
+|-------|--------|
+| `accounts` | address, balance, public key |
+| `public_transactions` | sends and message signing |
+| `contract_calls` | state-changing contract calls |
+| `contract_views` | read-only contract calls |
+| `private_balance_read` | private balance, decrypting values, pending transfers |
+| `private_proofs` | encrypting values, zero and range proofs |
+| `private_transfers` | sending private transfers |
+| `private_claims` | claiming private transfers |
 
-#### `wallet.getBalance(forceRefresh?: boolean): Promise<Balance>`
-Get wallet balance (public + private).
+The private scopes show a warning in the connection dialog. Older names such as `read_balance` or `stealth_claim` still work: the SDK translates them, and they come back in the granted list as aliases.
+
+## API map
+
+Connection: `initialize()`, `connect(options?)`, `disconnect()`, `isConnected()`, `getConnectionStatus()`, `getAddress()`, `getPublicKey()`.
+
+Balance and network: `getBalance(forceRefresh?)`, `getNetworkInfo()`, `getNetworkId()`, `switchNetwork(id)` (connected dapps only; no popup).
+
+Transactions: `sendTransaction(data)`, `signTransaction(data)` then `submitTransaction(signedTx)`, `getTransactionHistory(page?, limit?)`.
+
+Contracts: `callContract(data)` (signed, approval shown), `contractCallView(data)` (read-only, no approval), `getContractStorage(contract, key)`, `sendContractTransactionSequence(data)` (several calls under one approval; every step is listed in it).
+
+Messages: `signMessage(message)`, `signAuthMessage(service, nonce)`, and the verifiers `verifyMessage`, `getSignedMessageBytes`, `buildAuthMessage`.
+
+Private: `sendPrivateTransfer(data)`, `getPendingPrivateTransfers()`, `claimPrivateTransfer(id)` (approval shown), `getPrivateBalanceInfo()`, `registerPrivateViewKey({ address })`.
+
+Private primitives (2.8.0): `getPrivateCapabilities()`, `encryptValue()`, `decryptValue()`, `makeZeroProof()`, `makeRangeProof()`, `getPrivateBalance()`. Keys never leave the wallet; the dapp receives ciphertexts, proofs and hashes.
+
+Passthrough: `request(method, params)` sends any wallet method; `rpcCall(method, params)` reaches the wallet's read-only node RPC allow-list, such as `octra_balance`.
+
+`encryptBalance` and `decryptBalance` remain for other wallets; the 0xio extension answers `NOT_AVAILABLE`, and users encrypt from its Privacy screen.
+
+## Message signing
+
+The wallet never signs a raw message. It signs a framed payload, so a signed message can never be a transaction (a transaction is JSON and starts with `{`):
+
+```
+"Octra Signed Message:\n" + utf8ByteLength(message) + "\n" + message
+```
+
+The signature is an Ed25519 detached signature over the UTF-8 bytes of that string. Verify it with the SDK:
 
 ```typescript
-interface Balance {
-  public: number;   // Visible on-chain balance
-  private: number;  // Encrypted (FHE) balance
-  total: number;    // public + private
-  currency: 'OCT';
-}
+import { verifyMessage } from '@0xio/sdk';
+
+const publicKey = await wallet.getPublicKey();
+const ok = await verifyMessage(message, signature, publicKey);
 ```
 
-### Transactions
+Or with any Ed25519 library, over the exact bytes from `getSignedMessageBytes(message)`. For `signAuthMessage(service, nonce)`, rebuild the signed string with `buildAuthMessage(service, nonce, origin)` first.
 
-#### `wallet.sendTransaction(txData): Promise<TransactionResult>`
-Send a transaction. Returns result with transaction finality status.
-
-```typescript
-interface TransactionData {
-  to: string;        // Recipient address (oct1...)
-  amount: number;    // Amount in OCT
-  message?: string;  // Optional memo
-}
-
-interface TransactionResult {
-  txHash: string;
-  success: boolean;
-  finality?: 'pending' | 'confirmed' | 'rejected';
-  message?: string;
-  explorerUrl?: string;
-}
-```
-
-### Smart Contracts
-
-#### `wallet.callContract(data: ContractCallData): Promise<TransactionResult>`
-Execute a state-changing contract call. The extension signs and submits via `octra_submit`.
-
-```typescript
-const result = await wallet.callContract({
-  contract: 'oct26Lia...',  // Contract address
-  method: 'swap',           // AML method name
-  params: [100, true, 90],  // Method arguments (flat, not array-wrapped)
-  amount: '0',              // Native OCT to send (optional, default '0')
-  ou: '10000',              // Operational units (optional, default '10000')
-});
-console.log('TX Hash:', result.txHash);
-```
-
-#### `wallet.contractCallView(data: ContractViewCallData): Promise<any>`
-Read-only contract query. No signing, no approval popup, no wallet unlock required.
-
-```typescript
-const price = await wallet.contractCallView({
-  contract: 'oct26Lia...',
-  method: 'get_active_price',
-  params: [],
-});
-console.log('Price:', price);
-```
-
-#### `wallet.getContractStorage(contract: string, key: string): Promise<string | null>`
-Read contract storage by key.
-
-```typescript
-const value = await wallet.getContractStorage('oct26Lia...', 'total_supply');
-console.log('Total supply:', value);
-```
-
-### Message Signing
-
-#### `wallet.signMessage(message: string): Promise<string>`
-Sign an arbitrary message with the wallet's private key. User will be prompted to approve.
-
-```typescript
-// Sign a message for authentication
-const message = `Login to MyDApp\nTimestamp: ${Date.now()}`;
-const signature = await wallet.signMessage(message);
-
-// Signature is base64-encoded Ed25519
-console.log('Signature:', signature);
-```
-
-**Use cases:**
-- Prove wallet ownership for API authentication
-- Sign login challenges
-- Authorize off-chain actions
-- Create verifiable attestations
-
-### Events
+## Events
 
 ```typescript
 wallet.on('connect', (event) => console.log('Connected:', event.data.address));
-wallet.on('disconnect', (event) => console.log('Disconnected'));
-wallet.on('balanceChanged', (event) => console.log('New balance:', event.data.newBalance.total));
-wallet.on('accountChanged', (event) => console.log('Account changed:', event.data.newAddress));
+wallet.on('disconnect', (event) => console.log('Disconnected:', event.data.reason));
+wallet.on('accountChanged', (event) => console.log('Account:', event.data.newAddress));
+wallet.on('balanceChanged', (event) => console.log('Balance:', event.data.newBalance.total));
 wallet.on('networkChanged', (event) => console.log('Network:', event.data.newNetwork.name));
+wallet.on('transactionConfirmed', (event) => console.log('Confirmed:', event.data.txHash));
+wallet.on('transactionFailed', (event) => console.log('Failed:', event.data.error));
+wallet.on('extensionLocked', () => console.log('Locked'));
 ```
 
-## Error Handling
+## Errors
+
+Every failure is a `ZeroXIOWalletError` with a `code`.
 
 ```typescript
 import { ZeroXIOWalletError, ErrorCode } from '@0xio/sdk';
 
 try {
-  const result = await wallet.sendTransaction({ to: 'oct1...', amount: 10 });
+  await wallet.sendTransaction({ to: 'oct1...', amountOct: '10' });
 } catch (error) {
   if (error instanceof ZeroXIOWalletError) {
     switch (error.code) {
-      case ErrorCode.USER_REJECTED:
-        console.log('User rejected the request');
-        break;
-      case ErrorCode.INSUFFICIENT_BALANCE:
-        console.log('Not enough balance');
-        break;
-      case ErrorCode.INVALID_SIGNATURE:
-        console.log('Invalid transaction signature');
-        break;
-      case ErrorCode.DUPLICATE_TRANSACTION:
-        console.log('Transaction already submitted');
-        break;
-      case ErrorCode.SELF_TRANSFER:
-        console.log('Cannot send to yourself');
-        break;
-      case ErrorCode.NONCE_TOO_FAR:
-        console.log('Transaction nonce too far ahead');
-        break;
-      case ErrorCode.WALLET_LOCKED:
-        console.log('Please unlock your wallet');
-        break;
+      case ErrorCode.NOT_CONNECTED:   // connect() first
+      case ErrorCode.WALLET_LOCKED:   // the user has to unlock the wallet
+      case ErrorCode.USER_REJECTED:   // the user declined the approval
+      case ErrorCode.INVALID_AMOUNT:  // bad unit or precision
+      case ErrorCode.NONCE_TOO_FAR:   // node rejected the transaction
+        console.log(error.code, error.message);
     }
   }
 }
 ```
 
+The wallet refuses anything that signs, submits or changes state until the page has connected, and opens its unlock screen at most once a minute for a page that is not connected.
+
 ## Networks
 
-The SDK ships with built-in configurations for Octra networks:
-
 ```typescript
-import { NETWORKS, getNetworkConfig } from '@0xio/sdk';
+import { getNetworkConfig } from '@0xio/sdk';
 
-// Get devnet config
 const devnet = getNetworkConfig('devnet');
-console.log(devnet.rpcUrl);           // http://165.227.225.79:8080
-console.log(devnet.supportsPrivacy);  // true
-console.log(devnet.isTestnet);        // true
-
-// Get mainnet config
-const mainnet = getNetworkConfig('mainnet');
-console.log(mainnet.rpcUrl);          // https://octra.network
-console.log(mainnet.supportsPrivacy); // true
+console.log(devnet.rpcUrl);          // https://devnet.octrascan.io
+console.log(devnet.isTestnet);       // true
 ```
 
-| Network | Privacy (FHE) | Explorer |
-|---------|:---:|---|
-| Mainnet Alpha | Yes | [octrascan.io](https://octrascan.io) |
-| Devnet | Yes | [devnet.octrascan.io](https://devnet.octrascan.io) |
+| Network | RPC | Explorer | Privacy |
+|---------|-----|----------|---------|
+| Mainnet | `https://octra.network` | [octrascan.io](https://octrascan.io) | yes |
+| Devnet | `https://devnet.octrascan.io` | [devnet.octrascan.io](https://devnet.octrascan.io) | yes |
 
-### NetworkInfo Type
+`connect()` returns the wallet's active network in `networkInfo`; the SDK never assumes one.
 
-```typescript
-interface NetworkInfo {
-  id: string;
-  name: string;
-  rpcUrl: string;
-  explorerUrl?: string;         // Transaction explorer base URL
-  explorerAddressUrl?: string;  // Address explorer base URL
-  indexerUrl?: string;          // Indexer/API base URL
-  supportsPrivacy: boolean;     // FHE encrypted balance support
-  color: string;                // Brand color hex
-  isTestnet: boolean;
-}
-```
+## Where it runs
 
-## Desktop & Mobile Support
+- **Browser extension.** The page talks to the extension over a private message channel that page scripts cannot read or forge.
+- **0xio Desktop.** The dapp runs in an iframe and the SDK relays requests to the desktop wallet. Set `trustedParentOrigins` in production; localhost is trusted by default for development.
+- **0xio App.** The dapp runs in a WebView and the SDK uses the app's bridge.
 
-The SDK automatically detects when your DApp is running inside:
+No code changes are needed; the SDK detects the environment.
 
-- **0xio Desktop's built-in browser** — Your DApp is loaded in an iframe. The SDK detects `window.parent !== window` and relays all requests to the desktop wallet via the iframe bridge.
-- **0xio App's built-in browser** — Your DApp is loaded in a WebView. The SDK communicates with the mobile wallet via the existing WebView bridge.
-- **0xio Wallet Extension** — Standard browser extension communication (unchanged).
+## Wallet adapters
 
-No code changes are needed for DApp developers. Just use the SDK as normal and it will auto-detect the environment and choose the correct transport.
-
-## Wallet Adapters
-
-The SDK ships with a pluggable adapter system so multiple wallets can be supported without changing core code.
-
-### Auto-detect
+Transport is pluggable, so another wallet can be supported without touching the core.
 
 ```typescript
-import { detectWalletAdapter, ZeroXIOWallet } from '@0xio/sdk';
+import { detectWalletAdapter, ZeroXIOWallet, OctraProviderAdapter } from '@0xio/sdk';
 
+// Detect: the 0xio bridge first, then any RFC-O-1 provider on window.octra.
 const adapter = detectWalletAdapter();
-if (!adapter) throw new Error('No supported wallet found');
-
 const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter });
+
+// Or choose one explicitly.
+const rfc = new ZeroXIOWallet({ appName: 'My DApp', adapter: OctraProviderAdapter });
 ```
 
-### Pass an adapter explicitly
+The 0xio bridge carries every SDK method. The RFC-O-1 provider carries what the RFC names, so `getBalance`, `getPublicKey`, `getTransactionHistory`, `getContractStorage`, `getPendingPrivateTransfers` and `rpcCall` have no equivalent there. The table in DOCUMENTATION.md lists coverage per method.
 
-```typescript
-import { ZeroXIOWallet, ZeroXIOAdapter } from '@0xio/sdk';
+To add a wallet, copy `src/supports/template.ts`, fill in its constants and message mapping, register it in `src/supports/index.ts`, and export it from `src/index.ts` if it belongs in the public API.
 
-const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter: ZeroXIOAdapter });
-```
+## Timeouts
 
-### Add support for another wallet
-
-1. Copy `src/supports/template.ts` → `src/supports/my-wallet.ts`
-2. Fill in the four constants (`REQUEST_SOURCE`, `RESPONSE_SOURCE`, `WINDOW_KEY`, `READY_EVENT`) and the message-shape mapping
-3. Register it in `src/supports/index.ts` `REGISTERED_ADAPTERS`
-4. Export it from `src/index.ts` if you want it in the public API
-
-See `DOCUMENTATION.md → Wallet Adapter System` for the full interface spec.
-
-## RFC-O-1 Provider Interface (`window.octra`)
-
-The 0xio extension exposes a standard `window.octra` provider per the RFC-O-1 spec in addition to the legacy `window.wallet0xio` bridge. The SDK supports both automatically.
-
-```typescript
-// window.octra shape (injected by the extension)
-window.octra.isOctra  // true — standard wallet detection
-window.octra.request({ method: 'octra_requestAccounts', params: [{}] })
-window.octra.on('accountsChanged', handler)
-window.octra.removeListener('accountsChanged', handler)
-```
-
-### How adapter priority works
-
-When the SDK initializes, `detectWalletAdapter()` runs detection in order:
-
-1. **`ZeroXIOAdapter`** — detected via `window.wallet0xio` / `window.ZeroXIOWallet` (postMessage bridge). Priority when the 0xio extension is installed — existing DApps are unaffected.
-2. **`OctraProviderAdapter`** — detected via `window.octra.isOctra === true`. Used when only the RFC-O-1 provider is present (third-party RFC-O-1 wallets, or DApps that explicitly request it).
-
-Old DApps using the postMessage bridge continue to work unchanged. New DApps can opt into `OctraProviderAdapter` directly:
-
-```typescript
-import { ZeroXIOWallet, OctraProviderAdapter } from '@0xio/sdk';
-
-// Explicitly use the RFC-O-1 window.octra provider
-const wallet = new ZeroXIOWallet({
-  appName: 'My DApp',
-  adapter: OctraProviderAdapter,
-});
-```
+Approvals wait up to three minutes. A private transfer waits up to ten, because the wallet builds proofs after the approval. Interactive methods are never retried, so a slow approval never produces a second popup.
 
 ## Requirements
 
-- 0xio Wallet Extension v2.0.1 or higher (Mainnet Alpha)
-- 0xio Wallet Extension v2.2.1 or higher (Devnet — required for contract calls and privacy features)
-- 0xio Desktop v1.0+ (for iframe bridge support)
-- 0xio App v1.0+ (for WebView bridge support)
-- Modern browser (Chrome, Firefox, Edge, Brave)
-
-## Documentation
-
-See [DOCUMENTATION.md](DOCUMENTATION.md) for complete API reference.
+- 0xio Wallet Extension 2.5.5 or newer for the 2.8.0 private primitives and framed message signing; 2.4.0 or newer for private transfers and claims
+- 0xio Desktop 1.0 or newer for the iframe bridge, 0xio App 1.0 or newer for the WebView bridge
+- A current Chromium-based browser (Chrome, Edge, Brave) or Firefox
 
 ## License
 

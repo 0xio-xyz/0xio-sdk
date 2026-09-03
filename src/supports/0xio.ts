@@ -10,7 +10,7 @@
  *   window.postMessage({ source: '0xio-sdk-bridge', response: { id, success, data, error }, sessionNonce })
  *   window.postMessage({ source: '0xio-sdk-bridge', event: { type, data } })
  *
- * H-2: Session nonce validation — injected.ts broadcasts the nonce received from the
+ * Session nonce validation: injected.ts broadcasts the nonce received from the
  * isolated content script. Once set, any '0xio-sdk-bridge' response with a missing or
  * mismatched nonce is rejected, preventing response injection by malicious page scripts.
  */
@@ -55,7 +55,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
           parentOrigin
         );
       } catch {
-        // Do not fall back to '*' — silent failure is safer
+        // Do not fall back to '*': silent failure is safer
       }
     },
 
@@ -77,7 +77,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
 
       let _sessionNonce: string | null = null;
 
-      // H-2: receive session nonce from injected.ts (MAIN world content script)
+      // receive the session nonce from injected.ts (MAIN world content script)
       const nonceListener = (e: MessageEvent) => {
         if (e.origin !== allowedOrigin) return;
         if (e.data?.source === '0xio-sdk-nonce-init' && typeof e.data.nonce === 'string') {
@@ -101,7 +101,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
         if (e.source !== window && e.source !== window.parent) return;
         if (!e.data || e.data.source !== '0xio-sdk-bridge') return;
 
-        // H-2: session nonce validation.
+        // session nonce validation.
         // Preferred path: nonce set via 0xio-sdk-nonce-init from injected.ts.
         // Fallback path: if the init broadcast was missed (race between document_start
         // content script and page script load), capture nonce from the first same-origin

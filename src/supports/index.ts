@@ -1,5 +1,5 @@
 /**
- * 0xio SDK — Wallet Adapter Registry
+ * 0xio SDK: Wallet Adapter Registry
  *
  * Add new wallet adapters here. Detection order determines which wallet takes
  * priority when multiple wallets are installed at the same time.
@@ -13,9 +13,9 @@ import { ZeroXIOAdapter } from './0xio';
 import { OctraProviderAdapter } from './octra-provider';
 
 const REGISTERED_ADAPTERS: WalletTransportAdapter[] = [
-  ZeroXIOAdapter,       // 0xio extension (postMessage protocol) — highest priority
+  ZeroXIOAdapter,       // 0xio extension (postMessage protocol), highest priority
   OctraProviderAdapter, // any RFC-O-1 compliant wallet (window.octra)
-  // Add new wallet adapters here — detection runs in order, first match wins
+  // Add new wallet adapters here: detection runs in order, first match wins
 ];
 
 /**

@@ -24,7 +24,7 @@ export class ExtensionCommunicator extends EventEmitter {
   private trustedOrigins: string[] = [];
   private _parentOrigin: string | null = null;
 
-  /** Pluggable transport — defaults to the 0xio postMessage protocol. */
+  /** Pluggable transport, defaults to the 0xio postMessage protocol. */
   private adapter: WalletTransportAdapter;
   /** Teardown fn returned by adapter.listen() */
   private _adapterTeardown: (() => void) | null = null;
@@ -33,7 +33,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
   /**
    * Set when a trusted walletReady has been received from window.parent.
-   * The polling fallback must NOT clear this flag.
+   * The polling fallback must not clear this flag.
    */
   private _parentTrusted = false;
 
@@ -42,7 +42,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
   /**
    * In-flight interactive request lock.
-   * Methods that open approval popups are serialized — only one at a time.
+   * Methods that open approval popups are serialized: only one at a time.
    */
   private _interactiveInFlight = false;
 
@@ -96,7 +96,7 @@ export class ExtensionCommunicator extends EventEmitter {
     return this.isExtensionAvailableState && this.hasExtensionContext();
   }
 
-  // Methods that trigger user-facing popups — NEVER retry these.
+  // Methods that trigger user-facing popups: never retry these.
   // Retrying sends a second request while the first popup is still open,
   // causing double popups where the second tx fails (stale nonce/state).
   private static readonly NO_RETRY_METHODS = new Set([
@@ -104,8 +104,27 @@ export class ExtensionCommunicator extends EventEmitter {
     'sign_transaction', 'broadcast_only',
     'send_private_transfer', 'claim_private_transfer',
     'encrypt_balance', 'decrypt_balance',
+    // Broadcasts a sequence of contract txs, so it must never be retried (it would double-send).
+    'send_contract_transaction_sequence',
+    // Shows an approval popup + broadcasts a registration tx (offscreen cold-init can exceed
+    // 30s): interactive, long timeout, no retry.
+    'register_private_view_key',
   ]);
 
+  // Long-running compute primitives (RFP): proof generation / decrypt take 10-120s, so
+  // they need the long (180s) timeout and must not be retried (a retry wastes ~a minute of
+  // compute). They do not show approval popups, so, unlike NO_RETRY_METHODS, they are not
+  // subject to the one-at-a-time interactive lock (a dapp may run several concurrently).
+  private static readonly LONG_COMPUTE_METHODS = new Set([
+    'make_zero_proof', 'make_range_proof', 'decrypt_value',
+    'get_private_balance', 'encrypt_value',
+  ]);
+
+  // A private transfer runs proof generation after the approval (minutes on a slow machine),
+  // so its wait is longer than the popup window alone.
+  private static readonly PROOF_METHODS = new Set(['send_private_transfer']);
+
+  // The interactive lock applies only to methods that open a wallet popup / broadcast.
   private static readonly INTERACTIVE_METHODS = ExtensionCommunicator.NO_RETRY_METHODS;
 
   async sendRequest<T = any>(
@@ -113,9 +132,16 @@ export class ExtensionCommunicator extends EventEmitter {
     params: any = {},
     timeout = 30000
   ): Promise<T> {
-    const isInteractive = ExtensionCommunicator.NO_RETRY_METHODS.has(method);
-    const maxRetries = isInteractive ? 0 : 1;
-    const effectiveTimeout = isInteractive ? Math.max(timeout, 180000) : timeout;
+    // No-retry + long timeout for both popup/broadcast methods and long compute primitives.
+    const longOrNoRetry =
+      ExtensionCommunicator.NO_RETRY_METHODS.has(method) ||
+      ExtensionCommunicator.LONG_COMPUTE_METHODS.has(method);
+    const maxRetries = longOrNoRetry ? 0 : 1;
+    const effectiveTimeout = ExtensionCommunicator.PROOF_METHODS.has(method)
+      ? Math.max(timeout, 600000)
+      : longOrNoRetry
+        ? Math.max(timeout, 180000)
+        : timeout;
     return this.sendRequestWithRetry(method, params, maxRetries, effectiveTimeout);
   }
 
@@ -218,7 +244,7 @@ export class ExtensionCommunicator extends EventEmitter {
     this._adapterTeardown = this.adapter.listen(
       (msg) => {
         if (msg.requestId !== undefined) {
-          // response — map AdapterIncomingMessage → ExtensionResponse shape
+          // response: map AdapterIncomingMessage to the ExtensionResponse shape
           if (this.pendingRequests.has(msg.requestId)) {
             this.handleExtensionResponse({
               id: msg.requestId,
@@ -241,7 +267,7 @@ export class ExtensionCommunicator extends EventEmitter {
   // only forward known event types
   private static readonly VALID_EVENT_TYPES = new Set<string>([
     'connect', 'disconnect', 'accountChanged', 'balanceChanged',
-    'networkChanged', 'transactionConfirmed', 'permissionsChanged', 'message',
+    'networkChanged', 'transactionConfirmed', 'transactionFailed', 'permissionsChanged', 'message',
     'error', 'extensionLocked', 'extensionUnlocked'
   ]);
 
@@ -266,7 +292,7 @@ export class ExtensionCommunicator extends EventEmitter {
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(response.id);
 
-    // Require strict boolean true — "false" string or other truthy values are failures
+    // Require strict boolean true: a "false" string or other truthy values are failures
     if (response.success === true) {
       pending.resolve(response.data);
     } else {
@@ -297,7 +323,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
   private postMessageToExtension(request: ExtensionRequest): void {
     this.adapter.postRequest(request);
-    // Parent bridge (iframe/desktop mode) — only when a trusted origin is established.
+    // Parent bridge (iframe/desktop mode), only when a trusted origin is established.
     // Sending with '*' would leak method + params to any intercepting frame.
     if (window.parent !== window && this._parentOrigin) {
       if (this.adapter.postRequestToParent) {
@@ -321,7 +347,7 @@ export class ExtensionCommunicator extends EventEmitter {
       );
     }
 
-    // Trim expired timestamps — cap array size to prevent unbounded growth in idle tabs
+    // Trim expired timestamps and cap the array size to prevent unbounded growth in idle tabs
     this.requestTimestamps = this.requestTimestamps.filter(
       t => now - t < this.RATE_LIMIT_WINDOW
     );
@@ -349,7 +375,7 @@ export class ExtensionCommunicator extends EventEmitter {
       const hex = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
       return `0xio-sdk-${hex}`;
     }
-    // Crypto API unavailable — throw rather than produce a guessable ID that
+    // Crypto API unavailable: throw rather than produce a guessable ID that
     // could allow response spoofing via a known requestId.
     throw new ZeroXIOWalletError(
       ErrorCode.UNKNOWN_ERROR,
@@ -368,7 +394,7 @@ export class ExtensionCommunicator extends EventEmitter {
       });
     }
 
-    // walletReady via postMessage (desktop/mobile iframe bridge) — store ref for cleanup
+    // walletReady via postMessage (desktop/mobile iframe bridge), store the ref for cleanup
     this._walletReadyMessageListener = (event: MessageEvent) => {
       if (event.data?.source !== '0xio-sdk-bridge' || event.data?.event?.type !== 'walletReady') {
         return;
@@ -407,7 +433,7 @@ export class ExtensionCommunicator extends EventEmitter {
     window.addEventListener('message', this._walletReadyMessageListener);
 
     if (window.parent !== window) {
-      this.logger.log('Running inside a frame — waiting for trusted walletReady signal');
+      this.logger.log('Running inside a frame, waiting for the trusted walletReady signal');
     }
 
     this.checkExtensionAvailability();
@@ -419,7 +445,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
   private checkExtensionAvailability(): void {
     // If parent-bridge readiness was established via a trusted walletReady handshake,
-    // preserve that state — the polling fallback (detectExtensionSignals) does not
+    // preserve that state: the polling fallback (detectExtensionSignals) does not
     // consider the iframe parent signal and would incorrectly flip state back
     if (this._parentTrusted) {
       return;
@@ -512,7 +538,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
   /**
    * Clean up SDK resources.
-   * After cleanup() the instance is terminal — do not call initialize() again.
+   * After cleanup() the instance is terminal: do not call initialize() again.
    * Construct a new instance instead.
    */
   cleanup(): void {
