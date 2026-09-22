@@ -327,9 +327,10 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Switch the extension's active network (e.g. 'mainnet' to 'devnet').
-   * Works silently: no popup, no user confirmation needed.
-   * The extension broadcasts 'networkChanged' event to all connected dApps.
+   * Ask the wallet to switch its active network (e.g. 'mainnet' to 'devnet').
+   * The wallet asks the user to confirm first; declining rejects with USER_REJECTED. The call is
+   * also refused while another request from this page is waiting for approval.
+   * On a switch the wallet emits 'networkChanged' to connected dApps.
    */
   async switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }> {
     this.ensureConnected();

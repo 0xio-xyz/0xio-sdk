@@ -79,7 +79,7 @@ The private scopes show a warning in the connection dialog. Older names such as 
 
 Connection: `initialize()`, `connect(options?)`, `disconnect()`, `isConnected()`, `getConnectionStatus()`, `getAddress()`, `getPublicKey()`.
 
-Balance and network: `getBalance(forceRefresh?)`, `getNetworkInfo()`, `getNetworkId()`, `switchNetwork(id)` (connected dapps only; no popup).
+Balance and network: `getBalance(forceRefresh?)`, `getNetworkInfo()`, `getNetworkId()`, `switchNetwork(id)` (connected dapps only; the wallet asks the user first).
 
 Transactions: `sendTransaction(data)`, `signTransaction(data)` then `submitTransaction(signedTx)`, `getTransactionHistory(page?, limit?)`.
 

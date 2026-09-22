@@ -2,6 +2,12 @@
 
 All notable changes to the 0xio Wallet SDK will be documented in this file.
 
+## [2.8.1] - 2026-09-22
+
+### Changed
+
+- **`switchNetwork` asks the user.** The 0xio wallets now show a confirmation before a site moves them to another network (extension 2.5.6, app 1.3.0), and refuse the switch while another request from the site is waiting for approval, so a transaction under review can never land on the other network. Declining rejects with `USER_REJECTED`. Documentation only: the call and its result are unchanged; handle the rejection where you call it.
+
 ## [2.8.0] - 2026-06-09
 
 ### Added

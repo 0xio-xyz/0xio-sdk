@@ -413,7 +413,7 @@ console.log('Address:', address); // 'oct1...' or null
 
 #### `switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }>`
 
-Silently switch the extension's active network. No popup, no user confirmation needed. DApps can detect network mismatch and offer one-click switch, similar to Rabby's `wallet_switchEthereumChain`.
+Ask the wallet to switch its active network. The wallet shows the user a confirmation first (0xio extension 2.5.6 and later, 0xio app 1.3.0 and later); declining rejects with `USER_REJECTED`. The call is also refused while another request from the page is waiting for approval, so a transaction the user is reviewing can never be moved to another network. DApps can still detect a network mismatch and offer the switch.
 
 ```typescript
 // Check current network
@@ -421,9 +421,13 @@ const networkId = wallet.getNetworkId(); // 'mainnet' or 'devnet'
 
 // Switch if wrong network
 if (networkId !== 'devnet') {
-  const result = await wallet.switchNetwork('devnet');
-  console.log(result.switched); // true
-  // Extension broadcasts networkChanged event automatically
+  try {
+    const result = await wallet.switchNetwork('devnet');
+    console.log(result.switched); // true once the user confirmed
+    // The wallet broadcasts networkChanged automatically
+  } catch (e) {
+    // USER_REJECTED: the user kept the current network
+  }
 }
 ```
 
