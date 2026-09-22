@@ -6,7 +6,8 @@ All notable changes to the 0xio Wallet SDK will be documented in this file.
 
 ### Changed
 
-- **`switchNetwork` asks the user.** The 0xio wallets now show a confirmation before a site moves them to another network (extension 2.5.6, app 1.3.0), and refuse the switch while another request from the site is waiting for approval, so a transaction under review can never land on the other network. Declining rejects with `USER_REJECTED`. Documentation only: the call and its result are unchanged; handle the rejection where you call it.
+- **`switchNetwork` asks the user.** The 0xio wallets now show a confirmation before a site moves them to another network (extension 2.5.6, app 1.3.0, desktop 0.4.1), and refuse the switch while another request from the site is waiting for approval, so a transaction under review can never land on the other network. Declining rejects with `USER_REJECTED`. Documentation only: the call and its result are unchanged; handle the rejection where you call it.
+- **`signMessage` is framed on every 0xio wallet.** 0xio Desktop 0.4.1 and the 0xio app 1.3.0 (in-app browser and WalletConnect) sign the same `Octra Signed Message` bytes as the extension, so `verifyMessage` now verifies their signatures too.
 
 ## [2.8.0] - 2026-06-09
 
