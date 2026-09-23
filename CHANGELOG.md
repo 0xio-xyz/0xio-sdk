@@ -1,584 +1,372 @@
 # Changelog
 
-All notable changes to the 0xio Wallet SDK will be documented in this file.
+All notable changes to the 0xio Wallet SDK.
 
 ## [2.8.1] - 2026-09-22
 
 ### Changed
 
-- **`switchNetwork` asks the user.** The 0xio wallets now show a confirmation before a site moves them to another network (extension 2.5.6, app 1.3.0, desktop 0.4.1), and refuse the switch while another request from the site is waiting for approval, so a transaction under review can never land on the other network. Declining rejects with `USER_REJECTED`. Documentation only: the call and its result are unchanged; handle the rejection where you call it.
-- **`signMessage` is framed on every 0xio wallet.** 0xio Desktop 0.4.1 and the 0xio app 1.3.0 (in-app browser and WalletConnect) sign the same `Octra Signed Message` bytes as the extension, so `verifyMessage` now verifies their signatures too.
+- `switchNetwork` asks the user in every 0xio wallet (extension 2.5.6, app 1.3.0, desktop 0.4.1) and is refused while another request from the site is pending; declining rejects with `USER_REJECTED`. The API is unchanged.
+- `signMessage` is framed the same way on desktop 0.4.1 and app 1.3.0 (browser and WalletConnect), so `verifyMessage` verifies their signatures.
 
 ## [2.8.0] - 2026-06-09
 
 ### Added
 
-- **Generic provider passthrough**: `wallet.request(method, params)` sends any method through the bridge, so dapps can reach wallet primitives without an SDK upgrade.
-- **Typed RFP private primitives** (thin helpers over the bridge; the wallet keeps all private/FHE secret material internal and returns only ciphertexts/proofs/tx-hashes):
-  - `getPrivateCapabilities()`: feature-detect supported private capabilities so a dapp renders the right UI or fails closed.
-  - `callContractView()`, `getPrivateBalance()`
-  - `encryptValue()`, `decryptValue()`
-  - `makeZeroProof()`: returns `{ proof, commitment, blinding, encoding }` (the Octra bound-proof scheme needs the commitment+blinding alongside the proof).
-  - `makeRangeProof()`: returns `{ proof, encoding }` (self-contained).
-  - `registerPrivateViewKey()`, `sendContractTransactionSequence()`
-- Internal bridge method names: `get_private_capabilities`, `encrypt_value`, `decrypt_value`, `make_zero_proof`, `make_range_proof`, `get_private_balance`, `register_private_view_key`, `send_contract_transaction_sequence`.
-- **0xio Signed Message standard + verification**: `wallet.signMessage` is domain-separated: the wallet signs `"Octra Signed Message:\n<byteLength>\n<message>"` so a signed message can never be a transaction pre-image. New `verifyMessage(message, signature, publicKey)` (Web Crypto Ed25519, zero-dep), `getSignedMessageBytes(message)` to verify with any Ed25519 library, and `buildAuthMessage(service, nonce, origin)` for `signAuthMessage`. Note: verifiers of raw-message signatures must adopt the framing.
+- `wallet.request(method, params)` passes any method through the bridge.
+- Private primitives over the bridge; the wallet keeps all secret material: `getPrivateCapabilities`, `callContractView`, `getPrivateBalance`, `encryptValue`, `decryptValue`, `makeZeroProof` (`{ proof, commitment, blinding, encoding }`), `makeRangeProof` (`{ proof, encoding }`), `registerPrivateViewKey`, `sendContractTransactionSequence`.
+- 0xio Signed Message standard: `signMessage` signs `"Octra Signed Message:\n<byteLength>\n<message>"`; `verifyMessage`, `getSignedMessageBytes` and `buildAuthMessage` added. Verifiers of raw-message signatures must adopt the framing.
 
 ### Changed
 
-- **Amounts are documented the way the wallet counts them.** `sendTransaction`, `signTransaction` and `callContract` have always passed `amount` to the wallet unchanged, and the wallet reads it as raw micro-OCT (1 OCT = 1000000), not OCT as the docs said. Nothing on the wire changes: whatever a dapp sends today still goes through as is. A new `amountOct` field takes OCT and converts it exactly; `sendPrivateTransfer` gains `amountRaw` for the same reason in the other direction. Pass one or the other.
-- **Permission names match the wallet.** The wallet enforces `accounts`, `public_transactions`, `contract_calls`, `contract_views`, `private_balance_read`, `private_proofs`, `private_transfers` and `private_claims`, and dropped every other name, so dapps asking for `view_private_balance` or `stealth_claim` never received the private scopes. The SDK now translates the older names when it connects and returns them as aliases next to the granted scopes, so existing checks keep working. `WALLET_PERMISSIONS`, `LEGACY_PERMISSION_MAP`, `toWalletPermissions` and `withLegacyAliases` are exported.
-- `sendPrivateTransfer` waits up to 10 minutes: the wallet builds proofs after the approval.
-- `switchNetwork` and everything that signs or submits need a connected page; the wallet now refuses them otherwise with `NOT_CONNECTED`.
-- The RFC-O-1 adapter maps the 2.8.0 primitives to their `octra_*` names, so they work over `window.octra` too.
+- `amount` in `sendTransaction`, `signTransaction` and `callContract` is documented as raw micro-OCT, as the wallet always read it; the new `amountOct` takes OCT, and `sendPrivateTransfer` gains `amountRaw`.
+- Permission names match the wallet (`accounts`, `public_transactions`, `contract_calls`, `contract_views`, `private_balance_read`, `private_proofs`, `private_transfers`, `private_claims`); older names are translated on connect and returned as aliases. `WALLET_PERMISSIONS`, `LEGACY_PERMISSION_MAP`, `toWalletPermissions` and `withLegacyAliases` exported.
+- `sendPrivateTransfer` waits up to 10 minutes for proofs.
+- `switchNetwork` and every signing or submitting call need a connected page (`NOT_CONNECTED` otherwise).
+- The RFC-O-1 adapter maps the 2.8.0 primitives to their `octra_*` names.
 
 ### Fixed
 
-- `getPublicKey()` exists. The docs and the signing example called it, but the wallet class had no such method.
-- `rpcCall(method, params)` wraps the wallet's read-only node RPC allow-list; a bare `request('octra_balance')` is not a wallet method.
-- `transactionFailed` events reach the dapp; they were filtered out.
-- `ErrorCode` includes the codes the wallet actually returns (`NOT_CONNECTED`, `INVALID_PARAMS`, `NOT_AVAILABLE`, `PRIVATE_PROOF_FAILED` and the rest).
-- `encryptValue` and `makeZeroProof` result types include the `commitment` (and `blinding`) the wallet returns.
-- `encryptBalance` and `decryptBalance` are marked deprecated: the 0xio extension answers `NOT_AVAILABLE`.
-- The built-in devnet entry points at `https://devnet.octrascan.io`; the old direct IP is dead.
-- `PendingPrivateTransfer` documents what the wallet really returns (`id` and a raw `amount`).
+- `getPublicKey()` exists (the docs called it).
+- `rpcCall(method, params)` wraps the wallet's read-only node RPC allow-list.
+- `transactionFailed` events reach the dApp.
+- `ErrorCode` includes every code the wallet returns.
+- `encryptValue` and `makeZeroProof` types include `commitment` and `blinding`.
+- `encryptBalance` and `decryptBalance` are deprecated (the extension answers `NOT_AVAILABLE`).
+- Built-in devnet points at `https://devnet.octrascan.io`.
+- `PendingPrivateTransfer` documents `id` and a raw `amount`.
 
 ## [2.7.1] - 2026-05-27
 
 ### Security
 
-- **LOW (re-assessed from HIGH):** Removed `this.config.networkId` silent fallback in `connect()` and `getConnectionStatus()`. If neither `networkInfo` nor `networkId` can be resolved from the response, `connect()` now throws `NETWORK_ERROR` and `getConnectionStatus()` returns cached state. The current extension always returns valid `networkInfo`; this hardens against malformed responses from custom or future adapters.
-- Added `SDKConfig.trustedParentOrigins`: when set, only listed origins (+ `tauri://`) are trusted as parent iframe bridges; implicit localhost trust is disabled. Omitting the field keeps existing dev-friendly behavior.
-- `validateNetworkInfo()` now rejects `http://` `rpcUrl` values on non-testnet networks. Testnet networks (`isTestnet: true`) and localhost are unaffected. Prevents a malicious bridge from injecting an insecure RPC endpoint.
-- `encryptBalance()`, `decryptBalance()`, `sendPrivateTransfer()`, and `callContract()` now throw `INVALID_AMOUNT` when a numeric amount cannot be represented exactly in micro-OCT (6 decimal places). Pass a string (e.g. `"0.300000"`) for exact control.
-- **Docs:** `ContractCallData.amount` JSDoc corrected: field is OCT, not micro-units. No behavior change.
+- `connect()` and `getConnectionStatus()` no longer fall back to `config.networkId`; an unresolvable network throws `NETWORK_ERROR` or returns cached state.
+- `SDKConfig.trustedParentOrigins` limits trusted parent iframe bridges (plus `tauri://`) and turns off implicit localhost trust.
+- `validateNetworkInfo()` rejects `http://` RPC URLs on non-testnet networks.
+- `encryptBalance`, `decryptBalance`, `sendPrivateTransfer` and `callContract` throw `INVALID_AMOUNT` for numbers not exact in micro-OCT; pass a string for exact control.
 
 ### Added
 
-- **`OctraProviderAdapter`** (`src/supports/octra-provider.ts`): RFC-O-1 compliant transport adapter that uses `window.octra.request()` instead of the postMessage bridge. Detects any wallet exposing `window.octra.isOctra === true`. Translates SDK method names to RFC-O-1 method names (`send_transaction` to `octra_sendTransaction`, etc.) and maps events back to SDK vocabulary. Registered second in the adapter registry: existing DApps using the postMessage bridge are unaffected.
-- **`listenForReady`** in `OctraProviderAdapter` now also listens for `octra#initialized` CustomEvent (dispatched by 0xio extension v2.4.3+) in addition to `octraWalletReady`, ensuring the provider is detected immediately on page load.
-
-### Fixed
-
-- Mainnet RPC URL in docs updated to `https://octra.network` (was stale `http://46.101.86.250:8080`)
-
-### Compatibility
-
-- No breaking changes: `ZeroXIOAdapter` (postMessage bridge) remains the default and takes priority when `window.wallet0xio` is present
-- Old DApps work unchanged; new DApps can opt into `OctraProviderAdapter` explicitly or via `detectWalletAdapter()`
-- Requires 0xio Wallet Extension v2.4.3+ for `octra#initialized` event; falls back to `octraWalletReady` on older versions
-
-## [2.7.0] - 2026-05-16
-
-### Security (post-audit remediation)
-
-**Transport hardening:**
-- Session nonce validation on all bridge responses: blocks same-origin impersonation
-- Removed wildcard `'*'` postMessage fallback: parent only addressed once origin established
-- Removed `Math.random()` fallback for request IDs: throws if `crypto` unavailable
-- `requestTimestamps` capped to prevent unbounded growth in idle tabs
-- Removed legacy `octraWalletReady` listeners and `createOctraWallet` alias
-
-### Added
-
-- **Pluggable wallet adapter system** (`src/adapter.ts`, `src/supports/`):
-  - `WalletTransportAdapter` interface: add support for any wallet without touching core SDK
-  - `src/supports/0xio.ts`: built-in adapter with session nonce + iframe bridge support
-  - `src/supports/template.ts`: starter template for new adapters
-  - `detectWalletAdapter()` auto-detect helper
-  - Exported: `WalletTransportAdapter`, `AdapterRequest`, `AdapterIncomingMessage`, `ZeroXIOAdapter`, `createZeroXIOAdapter`, `detectWalletAdapter`, `getAllAdapters`
+- `OctraProviderAdapter`: RFC-O-1 transport over `window.octra.request()` for any wallet with `window.octra.isOctra`, mapping SDK method and event names.
+- `OctraProviderAdapter` also listens for `octra#initialized` (extension 2.4.3+).
 
 ### Changed
 
-- `ExtensionCommunicator` delegates to adapter for detect, postMessage, listen, and ready events
-- Session nonce handling moved from communicator to adapter
-- Requires Chrome 111+ when using the 0xio browser extension
-- No breaking changes to `ZeroXIOWallet` public API
+- `ZeroXIOAdapter` (postMessage) stays the default; `OctraProviderAdapter` is opt-in or picked by `detectWalletAdapter()`.
 
-**SDK fixes:**
-- Session versioning: `_sessionVersion` counter prevents stale writes from in-flight requests after disconnect/account switch
-- Debug log scrubbing: only non-sensitive fields logged (`{ to }`, `{ contract, method }`, `{ public }`)
-- Removed `retry()` and `withTimeout()` from public API export
-- Per-method payload size limits: method names ≤ 200 chars, params ≤ 64 KB, memos ≤ 1,000 chars
-- Input validation at all mutating method entry points (`isValidAddress()`, `isValidAmount()`)
-- Added `signAuthMessage(service, nonce)`: domain-separated auth signing with origin binding
-- Amount types accept `string | number`: eliminates JS precision loss for large values
-- Added `deriveOctraAddress(publicKeyBase64)`: `connect()` and `getConnectionStatus()` verify pubkey to addr binding
-- `encrypt/decryptBalance()` return full `TransactionResult` (was boolean)
-- `contractCallView` no longer leaks connected address as default caller
-- `balanceChanged` emits on public/private split change (not just total)
-- `once()` removes listener before invoke: throwing listeners no longer re-fire
-- `extensionLocked`/`extensionUnlocked` events emitted (were suppressed)
-- Permissions stored in `ConnectionInfo` and survive session restore
-- `connectedAt` preserved across `getConnectionStatus()` polls
-- `connect` event only emits on disconnected to connected transition
-- `NETWORKS` frozen + `getNetworkConfig()` returns frozen copies
-- `validateBalance()` uses `Number()` not `parseFloat()`: rejects partial numerics
-- `validateNetworkInfo()` rejects empty rpcUrl (except custom network)
-- `switchNetwork()` requires active connection
-- `checkSDKCompatibility()` no longer falsely flags non-Chrome transports
+### Fixed
+
+- Mainnet RPC URL in the docs is `https://octra.network`.
+- `ContractCallData.amount` JSDoc says OCT.
+
+## [2.7.0] - 2026-05-16
+
+### Security
+
+- Session nonce checked on every bridge response.
+- No wildcard `'*'` postMessage fallback; the parent is addressed only once its origin is known.
+- No `Math.random()` request ids; throws without `crypto`.
+- `requestTimestamps` capped.
+- Legacy `octraWalletReady` listeners and the `createOctraWallet` alias removed.
+- Debug logs carry only non-sensitive fields.
+- Payload limits: method names 200 characters, params 64 KB, memos 1,000 characters.
+- Input validation at every mutating entry point.
+- `contractCallView` no longer sends the connected address as the default caller.
+- `connect()` and `getConnectionStatus()` check the public key against the address.
+
+### Added
+
+- Pluggable wallet adapters: `WalletTransportAdapter`, `ZeroXIOAdapter`, `createZeroXIOAdapter`, `detectWalletAdapter`, `getAllAdapters`, plus a starter template.
+- `signAuthMessage(service, nonce)`: domain-separated auth signing bound to the origin.
+- `deriveOctraAddress(publicKeyBase64)`.
+
+### Changed
+
+- `ExtensionCommunicator` delegates detection, messaging and ready events to the adapter; session nonces live in the adapter.
+- Requires Chrome 111+ with the 0xio extension.
+- Amounts accept `string | number`.
+- `encryptBalance` and `decryptBalance` return a full `TransactionResult`.
+- `retry()` and `withTimeout()` no longer exported.
+- `NETWORKS` frozen; `getNetworkConfig()` returns frozen copies.
+- `switchNetwork()` requires a connection.
+
+### Fixed
+
+- `_sessionVersion` stops stale writes after a disconnect or account switch.
+- `balanceChanged` fires on a public/private split change.
+- `once()` removes the listener before calling it.
+- `extensionLocked` and `extensionUnlocked` are emitted.
+- Permissions and `connectedAt` survive session restore and polling.
+- `connect` fires only on a disconnected to connected transition.
+- `validateBalance()` rejects partial numbers; `validateNetworkInfo()` rejects an empty RPC URL.
+- `checkSDKCompatibility()` no longer flags non-Chrome transports.
 
 ## [2.6.0] - 2026-05-13
 
 ### Added
-- **`sendPrivateTransfer()`**: Send encrypted (stealth) transfers to any address. The extension handles PVAC ciphertext subtraction, range proof, and zero proof generation. The node re-encrypts the amount under the recipient's public key. Enables privacy-preserving dApps (prediction markets, private payments, stealth bets).
-- **`getPendingPrivateTransfers()`**: List incoming private transfers that can be claimed by the connected wallet.
-- **`claimPrivateTransfer(transferId)`**: Claim a pending private transfer, adding it to the wallet's encrypted balance.
+
+- `sendPrivateTransfer()`: encrypted transfers; the extension builds the ciphertext and proofs.
+- `getPendingPrivateTransfers()` and `claimPrivateTransfer(transferId)`.
 
 ### Changed
-- Privacy transfer methods no longer return NOT_AVAILABLE: fully wired to extension v2.4.0+
-- Updated JSDoc for all privacy methods with PVAC flow description
 
-### Compatibility
-- Requires 0xio Wallet Extension v2.4.0+ for privacy transfer support
-- Older extensions will throw on privacy transfer calls
-- DApps requesting `'private_transfers'` permission get access to all three methods
+- Private transfer methods are live with extension 2.4.0+; older extensions throw. The `private_transfers` permission covers all three.
 
 ## [2.5.0] - 2026-05-10
 
 ### Added
-- **`switchNetwork(networkId)`**: Silently switch the extension's active network without opening the popup. Works like Rabby's `wallet_switchEthereumChain`: DApps can detect network mismatch and offer one-click switch.
-- **`getNetworkId()`**: Returns the extension's current network ID ('mainnet' or 'devnet').
-- DApps can now detect + switch network programmatically, enabling network-aware UIs.
 
-### Compatibility
-- Requires 0xio Wallet Extension v2.3.6+ for `switchNetwork` support
-- Older extensions will throw on `switchNetwork` calls (graceful fallback recommended)
+- `switchNetwork(networkId)` switches the extension's network without the popup (extension 2.3.6+).
+- `getNetworkId()` returns `mainnet` or `devnet`.
 
 ## [2.4.5] - 2026-05-07
 
 ### Fixed
-- **[CRITICAL] Network detection**: SDK now reads `networkId` from the extension's `getConnectionStatus` and `connect` responses instead of using hardcoded `DEFAULT_NETWORK_ID` (mainnet). Previously, DApps connected to a devnet extension would incorrectly report mainnet network info and fetch mainnet balances.
-- **[HIGH] Stale balance on reconnect**: `getConnectionStatus` returned `{total: 0, public: 0}` cached from last session. Extension now fetches live balance via `octra_balance` RPC on every status check.
-- **[HIGH] Transaction history stub**: `getTransactionHistory()` returned empty `{transactions: []}`. Extension now calls `octra_transactionsByAddress` with proper pagination and returns `{transactions, totalCount, page, hasMore}`.
-- **[MEDIUM] Event name mismatch**: Extension emitted `transactionComplete` but SDK listened for `transactionConfirmed`. Extension renamed to `transactionConfirmed` for alignment.
-- **[MEDIUM] Private balance info field name**: Extension returned `privateBalance` (number) but SDK type expects `encryptedAmount` (string). Extension now returns `encryptedAmount` matching the `PrivateBalanceInfo` interface.
+
+- Network read from the extension's `connect` and `getConnectionStatus` responses instead of defaulting to mainnet.
+- Live balance on every status check (was a cached zero).
+- `getTransactionHistory()` returns real pages: `{ transactions, totalCount, page, hasMore }`.
+- `transactionConfirmed` event name aligned with the extension.
+- Private balance info returns `encryptedAmount`.
 
 ### Changed
-- **Connect response enriched**: Extension now returns `networkInfo` (id, name, rpcUrl, color, isTestnet) and `permissions` array in both fresh connect and reconnect responses.
-- **Network info complete**: `getNetworkInfo` response now includes `explorerUrl`, `explorerAddressUrl`, `indexerUrl`, `supportsPrivacy`, `isTestnet` fields.
-- **networkInfo fallback chain**: SDK tries `result.networkInfo`, then `getNetworkConfig(result.networkId)`, then `getNetworkConfig(this.config.networkId)`.
 
-### Compatibility
-- Requires 0xio Wallet Extension v2.3.5+ for full alignment
-- Older extensions work but return partial data (SDK falls back gracefully)
+- `connect` returns `networkInfo` and `permissions`; `getNetworkInfo` adds explorer, indexer, privacy and testnet fields.
+- Network info falls back from `result.networkInfo` to `getNetworkConfig(result.networkId)` to the configured id.
+- Full alignment needs extension 2.3.5+; older ones return partial data.
 
 ## [2.4.4] - 2026-05-02
 
 ### Added
-- **FHE/PVAC DApp support**: `ContractCallData` types now document base64-encoded binary params for FHE ciphers, proofs, and public keys
-- **`ContractParam` type exported**: Individual param type for DApps that need to build params dynamically
-- **Approval UI documentation**: Clarified that `amount` = native OCT transferred, `ou` = gas fee shown separately in popup
+
+- `ContractCallData` documents base64 params for FHE ciphers, proofs and public keys; `ContractParam` exported.
 
 ### Changed
-- **Interactive timeout increased to 180s** (was 120s): Covers FHE proof-heavy contract calls that need extra time for user review + signing
-- **Better JSDoc on `ContractCallData`**: Documents micro-unit amounts, FHE param encoding, and OU fee behavior
+
+- Interactive timeout 180 s (was 120 s) for proof-heavy contract calls.
+- `ContractCallData` JSDoc covers micro-unit amounts, FHE params and OU fees.
 
 ## [2.4.3] - 2026-04-24
 
 ### Fixed
-- **Double popup on timeout**: State-changing methods (`send_transaction`, `call_contract`, `signMessage`, etc.) no longer retry on timeout. Previously, SDK would retry with a new request ID while the extension was still showing the first approval popup, causing two popups where the second tx fails due to stale nonce/state.
-- **Interactive timeout increased**: User-facing approval methods now use 120s timeout (was 30s). Users reviewing large transactions no longer get timeout errors.
+
+- State-changing methods no longer retry on timeout, which opened a second approval popup.
+- Interactive timeout 120 s (was 30 s).
 
 ## [2.4.2] - 2026-04-15
 
 ### Fixed
-- **Cross-origin iframe DApp bridge**: SDK now accepts localhost origins as trusted parents for dev/testing. Fixes "Unable to post message" errors when DApps run on different localhost ports inside the desktop browser.
-- **Parent origin capture**: `walletReady` signal now carries `parentOrigin` field. SDK stores it and uses it for cross-origin replies instead of failing silently.
-- **postMessage targeting**: When inside an iframe, SDK replies to the captured parent origin (or wildcard fallback) instead of `window.location.origin` which fails for cross-port scenarios.
+
+- Localhost origins accepted as trusted parents for development.
+- `walletReady` carries `parentOrigin`; replies go to it.
+- Iframe replies target the captured parent origin.
 
 ## [2.4.1] - 2026-04-14
 
 ### Security
-- **[CRITICAL] postMessage origin validation**: Parent-frame messages now validated against a strict trusted origins set instead of accepting all origins. Prevents malicious pages from intercepting wallet requests via iframe embedding.
-- **[CRITICAL] Removed auto-trust for iframes**: SDK no longer assumes any iframe parent is a wallet bridge. Must receive a `walletReady` signal from a trusted origin first.
-- **[CRITICAL] Response binding**: Only responses with matching pending request IDs are processed. Forged responses from injected scripts are rejected.
-- **[HIGH] Removed `simulateExtensionEvent`**: Dev utility that could be exploited on staging builds to inject fake wallet events has been removed.
-- **[HIGH] No wildcard postMessage**: `postMessageToExtension` now uses specific trusted origins (`tauri://localhost`, etc.) instead of `'*'` for parent-frame communication.
 
-### Fixed
-- **No retry on user rejection**: `retry()` detects rejection/denied/cancelled errors and throws immediately. Prevents double confirmation popups.
-- **`withTimeout` timer leak**: Timer is now cleared via `.finally()` when the promise resolves, preventing 30s memory retention per request.
-- **`retry` off-by-one**: `maxRetries=1` now correctly means 1 initial + 1 retry = 2 total (was 3).
-- **Message listener cleanup**: `cleanup()` now removes the `window.addEventListener('message')` listener, preventing accumulation on re-instantiation.
-- **Type compatibility**: Replaced `NodeJS.Timeout` with `ReturnType<typeof setTimeout>` for browser-only environments.
-- **`process.env` guard**: `createLogger` now uses optional chaining for `process.env.NODE_ENV`, preventing ReferenceError when imported in browser without bundler.
-- **Duplicate `isValidNetworkId`**: Removed duplicate export from `utils.ts`, canonical version in `config/networks.ts`.
+- Parent-frame messages validated against a strict trusted origins set.
+- No automatic trust for an iframe parent without a trusted `walletReady`.
+- Only responses matching a pending request id are processed.
+- `simulateExtensionEvent` removed.
+- No wildcard postMessage to the parent.
 
 ### Added
-- **`setTrustedOrigins(origins)`**: New method to configure allowed parent-frame origins for iframe/bridge communication.
 
-### Documentation
-- Fixed all event listener examples to use `event.data.xxx` (WalletEvent wrapper)
-- Fixed `TransactionHistory` type (`totalCount`/`hasMore` instead of `total`/`limit`/`totalPages`)
-- Fixed `retry()` docs (positional args, not options object)
-- Fixed `formatZeroXIO` return value (no " OCT" suffix)
-- Fixed `toMicroZeroXIO` return type (string, not number)
-- Removed nonexistent `ConnectOptions.timeout`, `.requestPrivateAccess`
-- Removed nonexistent `ConnectionInfo.permissions`
-- Changed `ErrorCode.TIMEOUT` to `ErrorCode.NETWORK_ERROR`
-- Updated mainnet privacy support to "Yes"
+- `setTrustedOrigins(origins)`.
+
+### Fixed
+
+- `retry()` stops on user rejection.
+- `withTimeout` clears its timer.
+- `retry` with `maxRetries=1` makes 2 attempts (was 3).
+- `cleanup()` removes the message listener.
+- `ReturnType<typeof setTimeout>` replaces `NodeJS.Timeout`.
+- `createLogger` guards `process.env`.
+- Duplicate `isValidNetworkId` removed.
+- Docs corrected: event examples, `TransactionHistory`, `retry`, `formatZeroXIO`, `toMicroZeroXIO`, `ConnectOptions`, `ConnectionInfo`, `ErrorCode.NETWORK_ERROR`, mainnet privacy support.
 
 ## [2.4.0] - 2026-03-24
 
-### Added
-- **Desktop/Mobile DApp Bridge**: SDK now supports running inside iframes (desktop browser) and WebViews (mobile browser). Requests are relayed to the parent frame automatically.
-- **Parent Frame Detection**: `postMessageToExtension()` now posts to both `window` (extension content script) and `window.parent` (iframe bridge) when running inside a frame.
-- **Frame-Aware Message Listener**: `setupMessageListener()` now accepts messages from `window.parent` in addition to same-window, enabling desktop/mobile wallet bridges to communicate with DApps.
-- **walletReady via postMessage**: `startExtensionDetection()` now detects `walletReady` events sent via `postMessage` from parent frames, in addition to DOM events and global signals.
-- **Auto Frame Detection**: When `window.parent !== window`, the SDK assumes a wallet bridge is available and marks the wallet as detected.
-
 ### Security
-- Parent frame messages are only accepted from `window.parent`, not arbitrary origins
-- Extension content script messages continue to use strict origin validation
 
-### Compatibility
-- Fully backward compatible: extension-based DApps work unchanged
-- Desktop (0xio Desktop): DApps loaded in BrowserScreen iframe now auto-connect
-- Mobile (0xio App): DApps loaded in WebView browser now auto-connect via existing bridge
-- Mainnet Alpha: Extension v2.0.1+
-- Devnet: Extension v2.2.1+
+- Parent messages accepted only from `window.parent`; extension messages keep strict origin checks.
 
----
+### Added
+
+- Runs inside iframes (0xio Desktop browser) and WebViews (0xio app): requests relay to the parent frame, and `walletReady` is detected via postMessage.
+
+### Changed
+
+- Backward compatible; mainnet needs extension 2.0.1+, devnet 2.2.1+.
 
 ## [2.3.0] - 2026-03-10
 
-### Added
-- **Smart Contract Interaction**: New `callContract()` method for state-changing contract calls. The extension builds, signs, and submits via `octra_submit`: works on both mainnet and devnet.
-- **Contract View Calls**: New `contractCallView()` method for read-only contract queries. No wallet unlock or approval popup required.
-- **Contract Storage**: New `getContractStorage()` method to read contract storage by key directly from the chain.
-- **New Types**: `ContractCallData`, `ContractViewCallData`, and `ContractParams` for type-safe contract interaction.
-- **Devnet Version Constant**: New `MIN_EXTENSION_VERSION_DEVNET` export (`'2.2.1'`) for programmatic devnet compatibility checks.
-
-### Improved
-- **Type Safety**: Replaced `any` with `ContractParams` (`ReadonlyArray<string | number | boolean>`) in `ContractCallData.params` and `ContractViewCallData.params`.
-- **Event Handler Typing**: Three internal event handlers (`handleAccountChanged`, `handleNetworkChanged`, `handleBalanceChanged`) now use properly typed parameters instead of `any`.
-- **Error Consistency**: `getNetworkConfig()` now throws `ZeroXIOWalletError` with `ErrorCode.NETWORK_ERROR` instead of a generic `Error`.
-- **UMD Global Name**: Fixed UMD build global from `OctraWalletSDK` to `ZeroXIOWalletSDK` to match SDK branding.
-
 ### Security
-- **Fixed wildcard origin**: `simulateExtensionEvent` now uses `window.location.origin` instead of `'*'` wildcard, preventing cross-origin message injection.
-- **signMessage length limit**: Added 10,000 character max to prevent memory exhaustion from oversized signing requests.
-- **Narrowed dev detection**: Removed overly broad `hostname.includes('dev')` check that would enable debug mode on any domain containing "dev" (e.g., `developer.mozilla.org`). Dev mode now only activates on `localhost`, `127.0.0.1`, or when `NODE_ENV=development`.
+
+- `simulateExtensionEvent` posts to `window.location.origin` instead of `'*'`.
+- `signMessage` limited to 10,000 characters.
+- Debug mode only on localhost, 127.0.0.1 or `NODE_ENV=development`.
+
+### Added
+
+- `callContract()`, `contractCallView()` and `getContractStorage()`.
+- `ContractCallData`, `ContractViewCallData` and `ContractParams` types; `MIN_EXTENSION_VERSION_DEVNET`.
+
+### Changed
+
+- `ContractParams` replaces `any` in contract params; internal event handlers typed.
+- `getNetworkConfig()` throws `ZeroXIOWalletError` (`NETWORK_ERROR`).
+- UMD global is `ZeroXIOWalletSDK`.
+- Mainnet needs extension 2.0.1+, devnet 2.2.1+.
 
 ### Fixed
-- **Message validation**: Increased `isValidMessage()` limit from 280 to 100,000 characters. The 280-char limit was blocking contract call parameters which are serialized JSON and can be large.
 
-### Compatibility
-- **Mainnet Alpha**: Requires 0xio Wallet Extension v2.0.1 or higher
-- **Devnet**: Requires 0xio Wallet Extension v2.2.1 or higher (contract calls, privacy features)
-
----
+- `isValidMessage()` allows 100,000 characters (280 blocked contract params).
 
 ## [2.2.0] - 2026-03-08
 
 ### Added
-- **Devnet Network Support**: Added full Octra Devnet configuration (`rpcUrl`, `explorerUrl`, `explorerAddressUrl`, `indexerUrl`) to the built-in `NETWORKS` registry.
-- **Expanded `NetworkInfo` Type**: Added `explorerAddressUrl`, `indexerUrl`, and `supportsPrivacy` fields to the `NetworkInfo` interface for richer network metadata.
-- **Privacy Flag**: Each network now exposes `supportsPrivacy: boolean` so DApps can detect FHE/encrypted balance support at the config level.
-- **Devnet Validation**: `isValidNetworkId()` now accepts `'devnet'` in addition to `'mainnet'` and `'custom'`.
+
+- Devnet in `NETWORKS`; `NetworkInfo` gains `explorerAddressUrl`, `indexerUrl` and `supportsPrivacy`; `isValidNetworkId()` accepts `devnet`.
 
 ### Fixed
-- **Explorer URLs**: Mainnet `explorerUrl` and `explorerAddressUrl` now include trailing `/` to match all other 0xio platforms (extension, app, desktop).
-- **Mock Data**: `generateMockData()` now returns a `NetworkInfo` object with all new fields (`explorerAddressUrl`, `indexerUrl`, `supportsPrivacy`, correct URLs).
 
-### Network Configurations
-
-| Network | RPC | Explorer | Privacy | Testnet |
-|---------|-----|----------|---------|---------|
-| Mainnet | `http://46.101.86.250:8080` | `https://lite.octrascan.io` | Yes | No |
-| Devnet | `http://165.227.225.79:8080` | `https://devnet.octrascan.io` | Yes | Yes |
-| Custom | User-defined | User-defined | No | No |
-
----
+- Mainnet explorer URLs end with `/`.
+- `generateMockData()` returns the new `NetworkInfo` fields.
 
 ## [2.1.8] - 2026-02-13
 
 ### Added
-- **Transaction Finality**: New `TransactionFinality` type (`'pending' | 'confirmed' | 'rejected'`) and `finality` field on `TransactionResult` and `Transaction` interfaces.
-- **RPC Error Codes**: 7 new `ErrorCode` entries for RPC-level transaction errors from `octra_submit` and `octra_submitBatch`:
-  - `MALFORMED_TRANSACTION`: Transaction is malformed
-  - `SELF_TRANSFER`: Cannot transfer to yourself
-  - `SENDER_NOT_FOUND`: Sender address not found
-  - `INVALID_SIGNATURE`: Invalid transaction signature
-  - `DUPLICATE_TRANSACTION`: Duplicate transaction detected
-  - `NONCE_TOO_FAR`: Transaction nonce is too far ahead
-  - `INTERNAL_ERROR`: Internal server error
-- **Error Messages**: All new error codes have corresponding human-readable messages in `createErrorMessage()`.
+
+- `TransactionFinality` (`pending`, `confirmed`, `rejected`) on `TransactionResult` and `Transaction`.
+- RPC error codes with messages: `MALFORMED_TRANSACTION`, `SELF_TRANSFER`, `SENDER_NOT_FOUND`, `INVALID_SIGNATURE`, `DUPLICATE_TRANSACTION`, `NONCE_TOO_FAR`, `INTERNAL_ERROR`.
 
 ### Fixed
-- Address validation now enforces `oct` prefix and 47-char length per Octra address spec.
-- Mock data generates correct `oct`-prefixed addresses instead of uppercase `OCT`.
-- `getBalance()` throws `ZeroXIOWalletError` instead of generic `Error` when address is missing.
-- Decimal conversion comment now references JSON-RPC spec (6 decimal places confirmed).
-- Stale REST endpoint comment (`/send-tx`, `/send-batch`) updated to JSON-RPC method names.
-- Mock data network config updated from testnet to mainnet (`octra.network`).
+
+- Addresses must start with `oct` and be 47 characters.
+- `getBalance()` throws `ZeroXIOWalletError` without an address.
+- Mock data uses `oct` addresses and mainnet.
 
 ## [2.1.7] - 2026-01-27
 
 ### Added
-- **Public Key Exposure**: `ConnectionInfo` and `ConnectEvent` now include `publicKey` field (Base64-encoded Ed25519 public key).
-- Enables DApps to perform cryptographic verification (e.g., API key signing) without additional extension requests.
-- Updated `wallet.connect()` and `wallet.getConnectionStatus()` to propagate `publicKey` from extension.
 
-### Changed
-- `WalletAddress` interface now has optional `publicKey` field for consistency.
+- `publicKey` (base64 Ed25519) on `ConnectionInfo`, `ConnectEvent` and `WalletAddress`.
 
 ## [2.1.6] - 2026-01-27
 
 ### Added
-- `signMessage` method to `ZeroXIOWallet` class for signing arbitrary text messages using Ed25519.
-- `sign_messages` and `read_address` permission types for TypeScript definitions.
-- Input validation for `signMessage` - rejects empty or non-string messages.
-- Improved debug logging for signature requests (truncates long messages in logs).
+
+- `signMessage` (Ed25519), rejecting empty or non-string messages.
+- `sign_messages` and `read_address` permission types.
 
 ## [2.1.4] - 2026-01-18
 
-### Fixed
-- **Critical Transaction Fix**: Fixed `ZeroXIOWalletError` when sending transactions from DApps. The SDK now properly handles extension response formats.
-- **Wallet ID Resolution**: Fixed wallet lookup failing when `getActiveWallet()` returns address instead of UUID in vault fallback mode. Extension now finds wallet by address match.
-- **Error Response Format**: Extension error responses now use proper object format `{ code, message }` instead of plain strings, matching SDK's `ExtensionResponse` type expectations.
-- **Success Response Format**: Transaction success responses now include `data` wrapper as expected by SDK's `handleExtensionResponse`.
-
 ### Changed
-- **Version Compatibility**: Changed from explicit version array to semver range (`^2.0.1`) - SDK now supports all extension versions >= 2.0.1.
-- **New Export**: Added `MIN_EXTENSION_VERSION` constant for programmatic version checking.
 
-### Compatibility
-- Requires 0xio Wallet Extension v2.0.1 or higher
-- Fully backward compatible with existing DApp integrations
+- Supports extension `^2.0.1`; `MIN_EXTENSION_VERSION` exported.
+
+### Fixed
+
+- Transactions from dApps handle the extension's response formats.
+- Wallet lookup by address when the vault returns an address.
+- Extension error and success responses match `ExtensionResponse`.
 
 ## [2.1.3] - 2026-01-17
 
 ### Fixed
-- **Simplified Balance Fetching**: Reverted to extension-based balance fetching to avoid CORS issues. The SDK now fetches both public and private balance exclusively from the extension's background script, which has unrestricted network access.
-- **Reliability**: Removed complex hybrid architecture in favor of a simpler, more reliable single-source approach.
+
+- Balances come from the extension only (the direct RPC read hit CORS).
 
 ## [2.1.2] - 2026-01-17
 
 ### Fixed
-- **Critical Refactor**: `getBalance` now implements a **Hybrid Architecture**. It fetches Public Balance directly from the RPC (bypassing extension middleware) and merges it with Private Balance from the extension. This permanently resolves "0.00" balance issues caused by extension caching or race conditions.
-- **Feature**: Added support for `private` balance field in the standard Balance response.
-- **Internal**: Added robust mapping for RPC responses to ensure correct public/private `Balance` object structure.
+
+- `getBalance` reads the public balance from RPC and the private one from the extension.
+- Private balance field added.
 
 ## [2.1.1] - 2026-01-16
 
 ### Changed
-- Updated logging to be less verbose in production.
+
+- Less verbose production logging.
 
 ## [2.0.2] - 2025-12-22
 
-### Breaking Changes
-- **Network Migration**: Default network changed from `octra-testnet` to `mainnet`.
-- **Testnet Removal**: Removed hardcoded Testnet configuration.
-- **Compatibility**: SDK now strictly requires Extension versions `2.0.1`, `2.0.3`, or `2.0.4`.
-
 ### Changed
-- Updated `NETWORKS` configuration to point to Octra Mainnet Alpha (`https://octra.network`).
-- `isTestnet` flag set to `false` by default.
+
+- Default network is mainnet (`https://octra.network`); testnet removed. Breaking.
+- Requires extension 2.0.1, 2.0.3 or 2.0.4.
 
 ## [2.0.1] - 2025-11-24
 
-### Breaking Changes
-- **Rebranded message sources**: Changed from `octra-sdk-*` to `0xio-sdk-*` for consistency with 0xio branding
-  - `octra-sdk-request` to `0xio-sdk-request`
-  - `octra-sdk-bridge` to `0xio-sdk-bridge`
-- This is a breaking change that requires wallet extension v2.0+ for compatibility
-
 ### Changed
-- Updated package metadata to reflect 0xio Team ownership
-- Changed author from "NullxGery" to "0xio Team"
-- Updated author email from "0xgery@proton.me" to "team@0xio.xyz"
-- Updated repository URL from `0xGery/0xio-sdk` to `0xio-xyz/0xio-sdk`
-- Updated keywords: "0xio" to "0xio wallet", added "octra wallet"
-- Author URL changed to organization: `https://github.com/0xio-xyz`
 
-### Migration Guide
-To upgrade from v1.x to v2.x:
-1. Update SDK: `npm install @0xio/sdk@^2.0.0`
-2. Update 0xio Wallet extension to v2.0 or higher
-3. No code changes required - API remains unchanged
-
----
+- Message sources renamed from `octra-sdk-*` to `0xio-sdk-*`. Breaking: needs extension 2.0+. Upgrade with `npm install @0xio/sdk@^2.0.0`; no code changes.
+- Package metadata, author and repository moved to 0xio-xyz.
 
 ## [1.0.4] - 2025-10-23
 
 ### Fixed
-- Fixed network configuration to use correct Octra Network RPC endpoint
-- Removed non-existent 0xio-testnet network configuration
-- Updated default network to octra-testnet with https://octra.network RPC
-- Updated explorer URL to https://octrascan.io/
 
----
+- Network RPC `https://octra.network`, explorer `https://octrascan.io/`; nonexistent testnet removed.
 
 ## [1.0.3] - 2025-10-04
 
 ### Changed
-- Updated CHANGELOG.md with complete release notes for all versions
 
----
+- Changelog completed for every version.
 
 ## [1.0.2] - 2025-10-04
 
 ### Changed
-- Removed development-only documentation files for cleaner npm package
-- Package now only includes essential documentation (README, CHANGELOG, LICENSE)
 
----
+- npm package ships README, CHANGELOG and LICENSE only.
 
 ## [1.0.1] - 2025-10-04
 
 ### Fixed
-- Added missing RATE_LIMIT_EXCEEDED error message
-- Fixed branding: Updated all references from "Octra Wallet" to "0xio Wallet"
-- Clarified SDK is for Octra Network/blockchain, not "0xio network"
 
----
+- `RATE_LIMIT_EXCEEDED` message added; branding reads 0xio Wallet for the Octra Network.
 
 ## [1.0.0] - 2025-10-04
 
-### Major Release - Production Ready
+First stable release.
 
-This is the first stable release of the 0xio Wallet SDK, a comprehensive bridge for dApps to connect to the 0xio Wallet extension on the Octra Network.
+### Security
 
-### Security Improvements
-- **Fixed 8 critical wildcard origins** in postMessage communication
-- **Origin validation**: All messages now validate against `window.location.origin`
-- **Rate limiting**: Implemented 50 concurrent requests, 20 requests/second limits
-- **Cryptographic request IDs**: Using `crypto.randomUUID()` instead of predictable sequential IDs
-- **Professional code refactoring**: All files now include comprehensive JSDoc documentation
+- postMessage origins validated (8 wildcard origins removed).
+- Rate limits: 50 concurrent requests, 20 per second.
+- Request ids from `crypto.randomUUID()`.
 
-### Package Changes
-- **Package renamed**: `@0xgery/wallet-sdk` to `@0xio/sdk`
-- **Version bump**: 0.2.1 to 1.0.0 (production-ready)
-- **Repository**: Published to https://github.com/0xGery/0xio-sdk
-- **Homepage**: https://0xio.xyz
+### Changed
 
-### Branding Updates
-- SDK rebranded from "Octra Wallet SDK" to "0xio Wallet SDK"
-- Wallet name: 0xio Wallet (for Octra Network)
-- Currency: OCT (Octra Network's native gas token)
-
-### Files Added
-- LICENSE (MIT)
-- .npmignore (excludes examples, source, docs from npm package)
-- .gitignore (standard Node.js gitignore)
-- Complete integration examples (React, Vue, Vanilla JS)
-
-### Technical Improvements
-- **JSDoc coverage**: 0% to 95%
-- **Code quality**: Refactored all functions to <30 lines
-- **Error handling**: Enhanced with detailed context and diagnostics
-- **TypeScript**: Full type safety with comprehensive type definitions
-
-### Breaking Changes
-None - maintains backward compatibility with exported `OctraWallet` class (also exported as `ZeroXIOWallet`)
-
----
+- Package renamed from `@0xgery/wallet-sdk` to `@0xio/sdk` and rebranded as the 0xio Wallet SDK.
+- JSDoc on every export; MIT license; React, Vue and vanilla JS examples.
+- `OctraWallet` still exported (also as `ZeroXIOWallet`).
 
 ## [0.2.1] - 2025-09-09
 
-### Changes
-- Update debugging messages to use plain text formatting
+### Changed
 
----
+- Plain-text debug messages.
 
 ## [0.2.0] - 2025-09-09
 
-### Major Features Added
+### Added
 
-- **Built-in Extension Detection**: No longer requires wrapper polling - SDK automatically detects and monitors extension availability
-- **Automatic Retry Logic**: Exponential backoff retry system for all extension requests (3 retries by default)
-- **Enhanced Error Diagnostics**: Detailed error reporting showing specific failure causes, browser state, and extension diagnostics
-- **Event-Based Communication**: Real-time extension events replace polling - instant updates for account changes, balance updates, network switches
-- **Development Mode**: Comprehensive debugging tools with detailed logging for development environments
+- Built-in extension detection and monitoring.
+- Retry with exponential backoff (3 retries).
+- Event-based updates for account, balance, network and lock state.
+- Development mode with grouped logs and `window.__ZEROXIO_SDK_UTILS__`.
+- Exported utilities for validation, formatting, conversion, errors, async, browser support and mock data.
+- `getDebugInfo()` includes extension diagnostics.
 
-### Technical Improvements
+### Fixed
 
-#### Extension Detection
-- Continuous background monitoring of extension availability
-- Multiple detection methods: runtime checks, DOM signals, extension-specific indicators
-- Automatic reconnection attempts when extension becomes available
-- Detailed browser compatibility diagnostics
+- `substr()` replaced with `substring()`; pending request and listener cleanup.
 
-#### Retry & Error Handling
-- Exponential backoff retry logic (1s, 2s, 4s delays)
-- Enhanced error context with request IDs, retry counts, timestamps
-- Browser and extension state diagnostics in error details
-- Specific timeout handling with detailed failure information
+## [0.1.2-dev]
 
-#### Event System
-- Real-time event forwarding from extension to SDK
-- Automatic balance updates on transaction confirmations
-- Account and network change detection and handling
-- Extension lock/unlock state management
-- Event-driven connection state management
-
-#### Development Tools
-- Advanced logging system with grouped output and table formatting
-- Debug mode auto-detection for localhost/development environments
-- Browser console utilities at `window.__ZEROXIO_SDK_UTILS__`
-- Extension event simulation for testing
-- Comprehensive SDK state inspection tools
-
-### API Enhancements
-
-#### New Utility Functions (now exported)
-```typescript
-// Validation
-isValidAddress, isValidAmount, isValidMessage, isValidFeeLevel, isValidNetworkId
-
-// Formatting
-formatOCT, formatAddress, formatTimestamp, formatTxHash
-
-// Conversion
-toMicroOCT, fromMicroOCT
-
-// Error handling
-createErrorMessage, isErrorType
-
-// Async utilities
-delay, retry, withTimeout
-
-// Browser support
-isBrowser, checkBrowserSupport
-
-// Development
-generateMockData, createLogger
-```
-
-#### Enhanced Debug Information
-- `getDebugInfo()` now includes extension diagnostics and availability state
-- Real-time extension state monitoring
-- Detailed browser environment detection
-
-### Bug Fixes
-- Fixed substr() deprecation warning (replaced with substring())
-- Improved error handling for edge cases in extension communication
-- Better cleanup of pending requests and event listeners
-- Enhanced memory management for background processes
-
-### Developer Experience
-- Rich console output with grouped logging in development mode
-- Automatic debug mode detection for development environments
-- Extension event simulation tools for testing
-- Comprehensive error messages with actionable information
-- SDK state inspection utilities accessible from browser console
-
-### Breaking Changes
-None - this version maintains full backward compatibility with v0.1.x
-
-### Performance Improvements
-- Reduced polling overhead by switching to event-based communication
-- More efficient extension detection with targeted checks
-- Optimized retry logic to reduce unnecessary network calls
-- Background monitoring with minimal CPU impact
-
----
-
-## [0.1.2-dev] - Previous Version
-- Initial SDK implementation
-- Basic extension communication
-- Core wallet operations
-- Transaction handling
-- Private transfer support
+- Initial SDK: extension communication, wallet operations, transactions, private transfers.
