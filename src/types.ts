@@ -77,6 +77,25 @@ export interface ContractCallData {
   readonly ou?: string | number;
 }
 
+export interface ContractDeployData {
+  /** Contract bytecode as strict base64 (what octra_compileAml / octra_compileAssembly return). Max 512 KB decoded. */
+  readonly bytecode: string;
+  /** Constructor arguments: a JSON string or an array the SDK serializes. Max 64 KB. */
+  readonly params?: string | ContractParams;
+  /**
+   * Fee in operation units, 1 to 50,000,000. Omit it and the wallet sets the live fee
+   * (the node's recommendation for a deploy, never below the size-based minimum).
+   */
+  readonly ou?: string | number;
+}
+
+export interface ContractDeployResult {
+  /** Hash of the deploy transaction. */
+  readonly txHash: string;
+  /** Address the node assigned to the contract, shown in the wallet's review. */
+  readonly contractAddress: string;
+}
+
 export interface ContractViewCallData {
   /** Contract address (oct-prefixed, 47 chars) */
   readonly contract: string;
@@ -275,7 +294,9 @@ export enum ErrorCode {
   PRIVATE_TRANSFER_FAILED = 'PRIVATE_TRANSFER_FAILED',
   CONTRACT_CALL_FAILED = 'CONTRACT_CALL_FAILED',
   SIGN_FAILED = 'SIGN_FAILED',
-  RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED'
+  RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED',
+  DEPLOY_FAILED = 'DEPLOY_FAILED',
+  DEPLOY_CHANGED = 'DEPLOY_CHANGED'
 }
 
 export class ZeroXIOWalletError extends Error {

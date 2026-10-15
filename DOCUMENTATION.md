@@ -619,6 +619,39 @@ interface ContractCallData {
 
 ---
 
+#### `deployContract(data: ContractDeployData): Promise<ContractDeployResult>`
+
+Deploy a contract from compiled bytecode. The wallet reads the deployer's next nonce, asks the node for the contract address (`octra_computeContractAddress`), and shows a review with the site, the code size, that address, the constructor params, the network and the fee. After approval it signs an `op_type: "deploy"` transaction and submits it with `octra_submit`. Needs the 0xio extension 3.0.0 or later.
+
+```typescript
+import { ContractDeployData } from '@0xio/sdk';
+
+const { txHash, contractAddress } = await wallet.deployContract({
+  bytecode: compiled.bytecode,   // base64 from octra_compileAml / octra_compileAssembly
+  params: ['My Token', 18],      // constructor args (optional): an array or a JSON string
+  // ou: '250000',               // fee in OU (optional); omit it to use the live fee
+});
+```
+
+**Parameters:**
+
+```typescript
+interface ContractDeployData {
+  bytecode: string;                    // strict base64, max 512 KB decoded
+  params?: string | ContractParams;    // constructor args, max 64 KB as JSON
+  ou?: string | number;                // 1 to 50,000,000 OU
+}
+```
+
+**Returns:** `Promise<ContractDeployResult>`: `{ txHash, contractAddress }`.
+
+**Notes:**
+- Without `ou` the wallet uses the node's recommended deploy fee, never below the size-based minimum (200,000 OU plus 1,000 OU per started KB of base64 payload). The review shows the fee in OCT (1 OU = 0.000001 OCT).
+- The contract address depends on the nonce. If another transaction from the wallet goes out while the review is open and the address changes, nothing is sent and the call rejects with `DEPLOY_CHANGED`.
+- A deploy signs with the wallet the review shows; picking another wallet there is refused.
+
+---
+
 #### `contractCallView(data: ContractViewCallData): Promise<any>`
 
 Read-only contract query. Does **not** require wallet unlock, signing, or user approval. Only requires `initialize()` (not `connect()`).
@@ -1234,7 +1267,7 @@ The postMessage bridge carries every SDK method. The RFC-O-1 provider carries on
 | SDK method | 0xio bridge | RFC-O-1 provider |
 |------------|-------------|------------------|
 | connect, disconnect, getConnectionStatus, getNetworkInfo, switchNetwork | yes | yes |
-| sendTransaction, signTransaction, submitTransaction, callContract, contractCallView | yes | yes |
+| sendTransaction, signTransaction, submitTransaction, callContract, deployContract, contractCallView | yes | yes |
 | signMessage, signAuthMessage | yes | yes |
 | sendPrivateTransfer, claimPrivateTransfer, getPrivateBalanceInfo | yes | yes |
 | getPrivateCapabilities, encryptValue, decryptValue, makeZeroProof, makeRangeProof, getPrivateBalance, registerPrivateViewKey, sendContractTransactionSequence | yes | yes |
@@ -1468,7 +1501,9 @@ enum ErrorCode {
   PRIVATE_TRANSFER_FAILED = 'PRIVATE_TRANSFER_FAILED',
   CONTRACT_CALL_FAILED = 'CONTRACT_CALL_FAILED',
   SIGN_FAILED = 'SIGN_FAILED',
-  RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED'
+  RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED',
+  DEPLOY_FAILED = 'DEPLOY_FAILED',
+  DEPLOY_CHANGED = 'DEPLOY_CHANGED'             // the contract address moved during the review
 }
 ```
 

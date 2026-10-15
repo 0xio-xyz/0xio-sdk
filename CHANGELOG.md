@@ -2,6 +2,14 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.9.0] - 2026-10-17
+
+### Added
+
+- `deployContract({ bytecode, params?, ou? })` deploys a contract after a review that shows the code size, the contract address from the node and the fee; returns `{ txHash, contractAddress }`. Needs extension 3.0.0.
+- `ContractDeployData`, `ContractDeployResult`, `ErrorCode.DEPLOY_FAILED` and `ErrorCode.DEPLOY_CHANGED`.
+- The RFC-O-1 adapter maps `deploy_contract` to `octra_deployContract`.
+
 ## [2.8.1] - 2026-09-22
 
 ### Changed

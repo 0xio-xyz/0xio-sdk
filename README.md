@@ -83,7 +83,7 @@ Balance and network: `getBalance(forceRefresh?)`, `getNetworkInfo()`, `getNetwor
 
 Transactions: `sendTransaction(data)`, `signTransaction(data)` then `submitTransaction(signedTx)`, `getTransactionHistory(page?, limit?)`.
 
-Contracts: `callContract(data)` (signed, approval shown), `contractCallView(data)` (read-only, no approval), `getContractStorage(contract, key)`, `sendContractTransactionSequence(data)` (several calls under one approval; every step is listed in it).
+Contracts: `callContract(data)` (signed, approval shown), `deployContract({ bytecode, params?, ou? })` (approval shows the code size, the contract address from the node and the fee; returns `{ txHash, contractAddress }`), `contractCallView(data)` (read-only, no approval), `getContractStorage(contract, key)`, `sendContractTransactionSequence(data)` (several calls under one approval; every step is listed in it).
 
 Messages: `signMessage(message)`, `signAuthMessage(service, nonce)`, and the verifiers `verifyMessage`, `getSignedMessageBytes`, `buildAuthMessage`.
 

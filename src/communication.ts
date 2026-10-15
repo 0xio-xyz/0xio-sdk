@@ -100,7 +100,7 @@ export class ExtensionCommunicator extends EventEmitter {
   // Retrying sends a second request while the first popup is still open,
   // causing double popups where the second tx fails (stale nonce/state).
   private static readonly NO_RETRY_METHODS = new Set([
-    'connect', 'send_transaction', 'call_contract', 'signMessage',
+    'connect', 'send_transaction', 'call_contract', 'deploy_contract', 'signMessage',
     'sign_transaction', 'broadcast_only',
     'send_private_transfer', 'claim_private_transfer',
     'encrypt_balance', 'decrypt_balance',

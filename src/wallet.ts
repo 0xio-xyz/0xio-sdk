@@ -5,6 +5,8 @@ import {
   ConnectionInfo,
   ConnectOptions,
   ContractCallData,
+  ContractDeployData,
+  ContractDeployResult,
   ContractViewCallData,
   NetworkInfo,
   SDKConfig,
@@ -26,6 +28,16 @@ import { getNetworkConfig, createDefaultBalance, validateBalance, validateNetwor
 import { createLogger, isValidAddress, isValidAmount, deriveOctraAddress, octToMicro } from './utils';
 import { toWalletPermissions, withLegacyAliases } from './permissions';
 import { buildAuthMessage } from './signing';
+
+const DEPLOY_MAX_CODE_BYTES = 512 * 1024;
+const DEPLOY_MAX_OU = 50_000_000;
+
+/** Bytes a strict base64 string decodes to, or null when it is not strict base64. */
+function base64DecodedLength(value: string): number | null {
+  if (!value || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
+  const pad = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return (value.length / 4) * 3 - pad;
+}
 
 export class ZeroXIOWallet extends EventEmitter {
   private communicator: ExtensionCommunicator;
@@ -643,6 +655,66 @@ export class ZeroXIOWallet extends EventEmitter {
         'Failed to call contract',
         error
       );
+    }
+  }
+
+  /**
+   * Deploy a contract. The wallet asks the node for the contract address, shows the code size,
+   * that address, the constructor params and the fee for review, then signs and submits an
+   * op_type "deploy" transaction.
+   */
+  async deployContract(deployData: ContractDeployData): Promise<ContractDeployResult> {
+    this.ensureConnected();
+
+    const bytecode = deployData?.bytecode;
+    const codeBytes = typeof bytecode === 'string' ? base64DecodedLength(bytecode) : null;
+    if (!codeBytes) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Contract bytecode must be non-empty base64');
+    }
+    if (codeBytes > DEPLOY_MAX_CODE_BYTES) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Contract bytecode too large (max 512 KB)');
+    }
+
+    let params: string | undefined;
+    if (deployData.params != null) {
+      if (typeof deployData.params === 'string') {
+        params = deployData.params;
+      } else if (Array.isArray(deployData.params)) {
+        try {
+          params = JSON.stringify(deployData.params);
+        } catch {
+          throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Constructor params are not serialisable');
+        }
+      } else {
+        throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Constructor params must be a JSON string or an array');
+      }
+      if (params.length > 65536) {
+        throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Constructor params too large (max 64 KB)');
+      }
+    }
+
+    let ou: string | undefined;
+    if (deployData.ou != null && deployData.ou !== '') {
+      ou = String(deployData.ou).trim();
+      if (!/^\d{1,8}$/.test(ou) || Number(ou) < 1 || Number(ou) > DEPLOY_MAX_OU) {
+        throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Deploy fee must be 1 to 50,000,000 OU');
+      }
+    }
+
+    try {
+      this.logger.log('Deploying contract:', { codeBytes });
+      const payload: Record<string, unknown> = { bytecode };
+      if (params) payload.params = params;
+      if (ou) payload.ou = ou;
+      const result = await this.communicator.sendRequest('deploy_contract', payload);
+      return {
+        txHash: result?.txHash ?? result?.hash,
+        contractAddress: result?.contractAddress,
+      };
+    } catch (error) {
+      this.logger.error('Contract deploy failed:', error);
+      if (error instanceof ZeroXIOWalletError) throw error;
+      throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Failed to deploy contract', error);
     }
   }
 

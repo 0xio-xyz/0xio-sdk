@@ -24,6 +24,7 @@ const SDK_TO_RFC: Record<string, string> = {
   sign_transaction: 'octra_signTransaction',
   broadcast_only: 'octra_submitTransaction',
   call_contract: 'octra_sendContractTransaction',
+  deploy_contract: 'octra_deployContract',
   contract_call_view: 'octra_callContract',
   get_private_balance_info: 'octra_getEncryptedBalance',
   encrypt_balance: 'octra_encryptBalance',

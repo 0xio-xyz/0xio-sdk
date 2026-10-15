@@ -210,7 +210,9 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.PRIVATE_TRANSFER_FAILED]: 'Private transfer failed',
     [ErrorCode.CONTRACT_CALL_FAILED]: 'Contract call failed',
     [ErrorCode.SIGN_FAILED]: 'Signing failed',
-    [ErrorCode.RECIPIENT_NOT_REGISTERED]: 'Recipient has no private view key registered'
+    [ErrorCode.RECIPIENT_NOT_REGISTERED]: 'Recipient has no private view key registered',
+    [ErrorCode.DEPLOY_FAILED]: 'Contract deploy failed',
+    [ErrorCode.DEPLOY_CHANGED]: 'The contract address changed during the review; nothing was sent'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';
