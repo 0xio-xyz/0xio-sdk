@@ -1,6 +1,6 @@
 # 0xio Wallet SDK
 
-**Version 2.8.0**
+**Version 2.9.0**
 
 The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
@@ -150,6 +150,8 @@ try {
 }
 ```
 
+`deployContract` adds two codes: `DEPLOY_CHANGED` when another transaction moved the nonce after the review, so the contract address would differ (nothing is sent), and `DEPLOY_FAILED` when the node refuses the deploy.
+
 The wallet refuses anything that signs, submits or changes state until the page has connected, and opens its unlock screen at most once a minute for a page that is not connected.
 
 ## Networks
@@ -192,16 +194,17 @@ const wallet = new ZeroXIOWallet({ appName: 'My DApp', adapter });
 const rfc = new ZeroXIOWallet({ appName: 'My DApp', adapter: OctraProviderAdapter });
 ```
 
-The 0xio bridge carries every SDK method. The RFC-O-1 provider carries what the RFC names, so `getBalance`, `getPublicKey`, `getTransactionHistory`, `getContractStorage`, `getPendingPrivateTransfers` and `rpcCall` have no equivalent there. The table in DOCUMENTATION.md lists coverage per method.
+The 0xio bridge carries every SDK method. The RFC-O-1 provider carries what the RFC names (`deployContract` maps to `octra_deployContract`), so `getBalance`, `getPublicKey`, `getTransactionHistory`, `getContractStorage`, `getPendingPrivateTransfers` and `rpcCall` have no equivalent there. The table in DOCUMENTATION.md lists coverage per method.
 
 To add a wallet, copy `src/supports/template.ts`, fill in its constants and message mapping, register it in `src/supports/index.ts`, and export it from `src/index.ts` if it belongs in the public API.
 
 ## Timeouts
 
-Approvals wait up to three minutes. A private transfer waits up to ten, because the wallet builds proofs after the approval. Interactive methods are never retried, so a slow approval never produces a second popup.
+Approvals wait up to three minutes, `deployContract` included. A private transfer waits up to ten, because the wallet builds proofs after the approval. Interactive methods are never retried, so a slow approval never produces a second popup.
 
 ## Requirements
 
+- 0xio Wallet Extension 3.0.0 or newer for `deployContract`
 - 0xio Wallet Extension 2.5.5 or newer for the 2.8.0 private primitives and framed message signing; 2.4.0 or newer for private transfers and claims
 - 0xio Desktop 1.0 or newer for the iframe bridge, 0xio App 1.0 or newer for the WebView bridge
 - A current Chromium-based browser (Chrome, Edge, Brave) or Firefox
