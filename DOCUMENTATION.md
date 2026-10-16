@@ -1507,7 +1507,7 @@ enum ErrorCode {
 }
 ```
 
-The wallet refuses anything that signs, submits or changes state until the page has connected, and a page can open the unlock screen at most once a minute. Both come back as `NOT_CONNECTED` or `WALLET_LOCKED`.
+The wallet refuses anything that signs, submits or changes state until the page has connected, and a page can open the unlock screen at most once a minute. Both come back as `NOT_CONNECTED` or `WALLET_LOCKED`. While the wallet is locked, `getBalance` and the private balance reads also return `WALLET_LOCKED` (extension 3.0.0 and newer).
 
 ### Error Handling Pattern
 

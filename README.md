@@ -152,7 +152,7 @@ try {
 
 `deployContract` adds two codes: `DEPLOY_CHANGED` when another transaction moved the nonce after the review, so the contract address would differ (nothing is sent), and `DEPLOY_FAILED` when the node refuses the deploy.
 
-The wallet refuses anything that signs, submits or changes state until the page has connected, and opens its unlock screen at most once a minute for a page that is not connected.
+The wallet refuses anything that signs, submits or changes state until the page has connected, and opens its unlock screen at most once a minute for a page that is not connected. While the wallet is locked, `getBalance` and the private balance reads return `WALLET_LOCKED` (extension 3.0.0 and newer).
 
 ## Networks
 
