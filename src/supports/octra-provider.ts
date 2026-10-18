@@ -55,8 +55,15 @@ function getProvider(): any {
 }
 
 function mapError(err: any): { code: string; message: string } {
-  const code = RFC_TO_SDK_ERROR[err?.code] ?? 'UNKNOWN_ERROR';
+  // A wallet that names the watch-only refusal in the error data keeps that code.
+  const code =
+    err?.data?.code === 'WATCH_ONLY' ? 'WATCH_ONLY' : (RFC_TO_SDK_ERROR[err?.code] ?? 'UNKNOWN_ERROR');
   return { code, message: err?.message ?? 'Request failed' };
+}
+
+/** The provider's canSign when it exposes one as a boolean, else unknown. */
+function providerCanSign(provider: any): boolean | undefined {
+  return typeof provider?.canSign === 'boolean' ? provider.canSign : undefined;
 }
 
 /**
@@ -78,7 +85,7 @@ async function rfcConnect(provider: any, params: unknown): Promise<unknown> {
     provider.request({ method: 'octra_permissions' }),
   ]);
 
-  return { address, networkInfo, permissions, balance: null };
+  return { address, networkInfo, permissions, balance: null, canSign: providerCanSign(provider) };
 }
 
 /**
@@ -95,7 +102,7 @@ async function rfcConnectionStatus(provider: any): Promise<unknown> {
     provider.request({ method: 'octra_permissions' }),
   ]);
 
-  return { isConnected: true, address, networkInfo, permissions };
+  return { isConnected: true, address, networkInfo, permissions, canSign: providerCanSign(provider) };
 }
 
 export function createOctraProviderAdapter(): WalletTransportAdapter {
@@ -164,7 +171,10 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
       const onDisconnect = (data: any) =>
         handler({ eventType: 'disconnect', eventData: { reason: 'network_error', ...data } });
       const onAccountsChanged = (accounts: string[]) =>
-        handler({ eventType: 'accountChanged', eventData: { address: accounts?.[0] ?? null } });
+        handler({
+          eventType: 'accountChanged',
+          eventData: { address: accounts?.[0] ?? null, canSign: providerCanSign(provider) },
+        });
       const onNetworkChanged = (data: any) =>
         handler({ eventType: 'networkChanged', eventData: { networkInfo: data } });
       const onBalanceChanged = (data: any) =>

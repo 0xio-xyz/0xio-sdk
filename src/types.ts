@@ -164,6 +164,13 @@ export interface ConnectionInfo {
   isConnected: boolean;
   address?: string;
   publicKey?: string;
+  /**
+   * Whether the connected wallet can sign. `false` is a watch-only wallet: it connects and reads,
+   * and every signing request is refused with `WATCH_ONLY`. `undefined` is unknown (an extension
+   * older than 3.0.3 does not report it); a missing `publicKey` then hints at watch-only.
+   * @since 2.10.0
+   */
+  canSign?: boolean;
   balance?: Balance;
   networkInfo?: NetworkInfo;
   connectedAt?: number;
@@ -225,6 +232,8 @@ export interface WalletEvent<T = any> {
 export interface ConnectEvent {
   readonly address: string;
   readonly publicKey: string | undefined;
+  /** See `ConnectionInfo.canSign`. @since 2.10.0 */
+  readonly canSign?: boolean;
   readonly balance: Balance;
   readonly networkInfo: NetworkInfo;
   readonly permissions: Permission[];
@@ -239,6 +248,8 @@ export interface AccountChangedEvent {
   readonly newAddress: string;
   readonly balance: Balance;
   readonly publicKey?: string;
+  /** Whether the new account can sign; see `ConnectionInfo.canSign`. @since 2.10.0 */
+  readonly canSign?: boolean;
 }
 
 export interface BalanceChangedEvent {
@@ -296,7 +307,9 @@ export enum ErrorCode {
   SIGN_FAILED = 'SIGN_FAILED',
   RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED',
   DEPLOY_FAILED = 'DEPLOY_FAILED',
-  DEPLOY_CHANGED = 'DEPLOY_CHANGED'
+  DEPLOY_CHANGED = 'DEPLOY_CHANGED',
+  /** The connected wallet is watch-only (no signing key). @since 2.10.0 */
+  WATCH_ONLY = 'WATCH_ONLY'
 }
 
 export class ZeroXIOWalletError extends Error {

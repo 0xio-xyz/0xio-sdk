@@ -350,6 +350,7 @@ interface ConnectOptions {
 interface ConnectEvent {
   address: string;
   publicKey?: string;  // Base64-encoded Ed25519 public key (32 bytes)
+  canSign?: boolean;   // false for a watch-only wallet, undefined when not reported (2.10.0)
   balance: Balance;
   networkInfo: NetworkInfo;
   permissions: Permission[];
@@ -392,6 +393,7 @@ interface ConnectionInfo {
   isConnected: boolean;
   address?: string;
   publicKey?: string;  // Base64-encoded Ed25519 public key
+  canSign?: boolean;   // false for a watch-only wallet, undefined when not reported (2.10.0)
   balance?: Balance;
   networkInfo?: NetworkInfo;
   connectedAt?: number;
@@ -409,6 +411,21 @@ Get connected wallet address.
 ```typescript
 const address = wallet.getAddress();
 console.log('Address:', address); // 'oct1...' or null
+```
+
+#### `canSign(): boolean | undefined`
+
+Whether the connected wallet can sign (2.10.0). A watch-only wallet connects and reads but has no signing key.
+
+- `true`: the wallet signs.
+- `false`: watch-only. Every signing call (`sendTransaction`, `signMessage`, `callContract`, `deployContract`, `signTransaction`, private transfers, claims and proofs) fails with `WATCH_ONLY`, and `getPublicKey()` does too.
+- `undefined`: not connected, or the extension does not report it (older than 3.0.3). A missing `publicKey` then hints at watch-only; older extensions refuse signing with `PERMISSION_DENIED`.
+
+The value follows `connect`, `getConnectionStatus` and `accountChanged`.
+
+```typescript
+const canSign = wallet.canSign() ?? !!wallet.getConnectionInfo().publicKey;
+if (!canSign) showReadOnlyBanner();
 ```
 
 #### `switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }>`
@@ -914,7 +931,7 @@ wallet.on('balanceChanged', (event) => {
 |-------|------|-------------|
 | `connect` | `ConnectEvent` | Wallet connected |
 | `disconnect` | `DisconnectEvent` | Wallet disconnected |
-| `accountChanged` | `AccountChangedEvent` | User switched account |
+| `accountChanged` | `AccountChangedEvent` | User switched account (carries `canSign` from 2.10.0) |
 | `balanceChanged` | `BalanceChangedEvent` | Balance updated |
 | `networkChanged` | `NetworkChangedEvent` | Network switched |
 | `transactionConfirmed` | `TransactionEvent` | Transaction confirmed |
@@ -1503,7 +1520,8 @@ enum ErrorCode {
   SIGN_FAILED = 'SIGN_FAILED',
   RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED',
   DEPLOY_FAILED = 'DEPLOY_FAILED',
-  DEPLOY_CHANGED = 'DEPLOY_CHANGED'             // the contract address moved during the review
+  DEPLOY_CHANGED = 'DEPLOY_CHANGED',            // the contract address moved during the review
+  WATCH_ONLY = 'WATCH_ONLY'                     // the wallet is watch-only and cannot sign (2.10.0)
 }
 ```
 

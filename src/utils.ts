@@ -212,7 +212,8 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.SIGN_FAILED]: 'Signing failed',
     [ErrorCode.RECIPIENT_NOT_REGISTERED]: 'Recipient has no private view key registered',
     [ErrorCode.DEPLOY_FAILED]: 'Contract deploy failed',
-    [ErrorCode.DEPLOY_CHANGED]: 'The contract address changed during the review; nothing was sent'
+    [ErrorCode.DEPLOY_CHANGED]: 'The contract address changed during the review; nothing was sent',
+    [ErrorCode.WATCH_ONLY]: 'This wallet is watch-only and cannot sign'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';

@@ -157,10 +157,10 @@ export {
 } from './signing';
 
 // Version information
-export const SDK_VERSION = '2.9.0';
+export const SDK_VERSION = '2.10.0';
 export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
 export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
-export const SUPPORTED_EXTENSION_VERSIONS = '^2.0.1'; // Supports all versions >= 2.0.1
+export const SUPPORTED_EXTENSION_VERSIONS = '>=2.0.1'; // Every extension from 2.0.1 on, 3.x included
 
 // Quick setup function for simple use cases
 export async function createZeroXIOWallet(config: {

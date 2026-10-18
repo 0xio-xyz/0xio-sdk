@@ -32,6 +32,15 @@ import { buildAuthMessage } from './signing';
 const DEPLOY_MAX_CODE_BYTES = 512 * 1024;
 const DEPLOY_MAX_OU = 50_000_000;
 
+/** The wallet's canSign as reported, or undefined when it sends none (older extensions). */
+const canSignOf = (value: unknown): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
+
+/** A watch-only refusal keeps its own code through the per-method error wrapping. */
+function rethrowWatchOnly(error: unknown): void {
+  if (error instanceof ZeroXIOWalletError && error.code === ErrorCode.WATCH_ONLY) throw error;
+}
+
 /** Bytes a strict base64 string decodes to, or null when it is not strict base64. */
 function base64DecodedLength(value: string): number | null {
   if (!value || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
@@ -177,11 +186,14 @@ export class ZeroXIOWallet extends EventEmitter {
       // aliases so existing permission checks keep working.
       const permissions = withLegacyAliases(result.permissions, requestedPermissions);
 
+      const canSign = canSignOf(result.canSign);
+
       // Update connection info, including permissions
       this.connectionInfo = {
         isConnected: true,
         address: result.address,
         publicKey: result.publicKey,
+        canSign,
         balance: result.balance,
         networkInfo,
         connectedAt: Date.now(),
@@ -191,6 +203,7 @@ export class ZeroXIOWallet extends EventEmitter {
       const connectEvent: ConnectEvent = {
         address: result.address,
         publicKey: result.publicKey,
+        canSign,
         balance: result.balance,
         networkInfo,
         permissions
@@ -300,10 +313,13 @@ export class ZeroXIOWallet extends EventEmitter {
         // preserve existing connectedAt
         const connectedAt = this.connectionInfo.connectedAt || result.connectedAt || Date.now();
 
+        const canSign = canSignOf(result.canSign);
+
         this.connectionInfo = {
           isConnected: true,
           address: result.address,
           publicKey: result.publicKey,
+          canSign,
           balance: balanceInfo,
           networkInfo,
           connectedAt,
@@ -317,6 +333,7 @@ export class ZeroXIOWallet extends EventEmitter {
           const connectEvent: ConnectEvent = {
             address: result.address,
             publicKey: result.publicKey,
+            canSign,
             balance: balanceInfo,
             networkInfo,
             permissions
@@ -379,6 +396,16 @@ export class ZeroXIOWallet extends EventEmitter {
 
   getAddress(): string | null {
     return this.connectionInfo.address || null;
+  }
+
+  /**
+   * Whether the connected wallet can sign. `false` is a watch-only wallet: show a read-only state,
+   * since every signing request fails with `WATCH_ONLY`. `undefined` when not connected or when the
+   * extension does not report it (older than 3.0.3); a missing public key then hints at watch-only.
+   * @since 2.10.0
+   */
+  canSign(): boolean | undefined {
+    return this.connectionInfo.isConnected ? this.connectionInfo.canSign : undefined;
   }
 
   /**
@@ -872,6 +899,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
+      rethrowWatchOnly(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to encrypt balance',
@@ -903,6 +931,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
+      rethrowWatchOnly(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to decrypt balance',
@@ -949,6 +978,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
+      rethrowWatchOnly(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to send private transfer',
@@ -969,6 +999,7 @@ export class ZeroXIOWallet extends EventEmitter {
       const result = await this.communicator.sendRequest('get_pending_private_transfers');
       return result;
     } catch (error) {
+      rethrowWatchOnly(error);
       throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get pending private transfers',
@@ -1003,6 +1034,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
+      rethrowWatchOnly(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to claim private transfer',
@@ -1243,13 +1275,15 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Extension event listeners setup complete');
   }
 
-  private handleAccountChanged(data: { address: string; balance?: Balance; publicKey?: string }): void {
+  private handleAccountChanged(data: { address: string; balance?: Balance; publicKey?: string; canSign?: unknown }): void {
     ++this._sessionVersion;
     const previousAddress = this.connectionInfo.address;
+    const canSign = canSignOf(data.canSign);
 
     this.connectionInfo.address = data.address;
     // clear stale pubkey on acct change
     this.connectionInfo.publicKey = data.publicKey;
+    this.connectionInfo.canSign = canSign;
     if (data.balance) {
       const validated = validateBalance(data.balance);
       if (validated) {
@@ -1263,6 +1297,7 @@ export class ZeroXIOWallet extends EventEmitter {
       previousAddress,
       newAddress: data.address,
       publicKey: data.publicKey,
+      canSign,
       balance: data.balance ?? this.connectionInfo.balance!
     };
 

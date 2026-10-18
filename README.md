@@ -1,6 +1,6 @@
 # 0xio Wallet SDK
 
-**Version 2.9.0**
+**Version 2.10.0**
 
 The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
@@ -77,7 +77,7 @@ The private scopes show a warning in the connection dialog. Older names such as 
 
 ## API map
 
-Connection: `initialize()`, `connect(options?)`, `disconnect()`, `isConnected()`, `getConnectionStatus()`, `getAddress()`, `getPublicKey()`.
+Connection: `initialize()`, `connect(options?)`, `disconnect()`, `isConnected()`, `getConnectionStatus()`, `getAddress()`, `getPublicKey()`, `canSign()` (2.10.0).
 
 Balance and network: `getBalance(forceRefresh?)`, `getNetworkInfo()`, `getNetworkId()`, `switchNetwork(id)` (connected dapps only; the wallet asks the user first).
 
@@ -94,6 +94,24 @@ Private primitives (2.8.0): `getPrivateCapabilities()`, `encryptValue()`, `decry
 Passthrough: `request(method, params)` sends any wallet method; `rpcCall(method, params)` reaches the wallet's read-only node RPC allow-list, such as `octra_balance`.
 
 `encryptBalance` and `decryptBalance` remain for other wallets; the 0xio extension answers `NOT_AVAILABLE`, and users encrypt from its Privacy screen.
+
+## Watch-only wallets
+
+A watch-only wallet connects and reads, but cannot sign. The connection, the `connect` event and `accountChanged` carry `canSign`, and `wallet.canSign()` returns it:
+
+- `true`: the wallet signs.
+- `false`: watch-only. Show a read-only state; every signing call fails with `WATCH_ONLY`.
+- `undefined`: unknown (not connected, or an extension older than 3.0.3). A missing `publicKey` then hints at watch-only, and older extensions refuse signing with `PERMISSION_DENIED`.
+
+```typescript
+await wallet.connect();
+const canSign = wallet.canSign() ?? !!wallet.getConnectionInfo().publicKey;
+sendButton.disabled = !canSign;
+
+wallet.on('accountChanged', (event) => {
+  sendButton.disabled = event.data.canSign === false;
+});
+```
 
 ## Message signing
 
@@ -142,6 +160,7 @@ try {
       case ErrorCode.NOT_CONNECTED:   // connect() first
       case ErrorCode.WALLET_LOCKED:   // the user has to unlock the wallet
       case ErrorCode.USER_REJECTED:   // the user declined the approval
+      case ErrorCode.WATCH_ONLY:      // the wallet is watch-only and cannot sign
       case ErrorCode.INVALID_AMOUNT:  // bad unit or precision
       case ErrorCode.NONCE_TOO_FAR:   // node rejected the transaction
         console.log(error.code, error.message);
@@ -204,6 +223,7 @@ Approvals wait up to three minutes, `deployContract` included. A private transfe
 
 ## Requirements
 
+- 0xio Wallet Extension 3.0.3 or newer for `canSign` and `WATCH_ONLY`
 - 0xio Wallet Extension 3.0.0 or newer for `deployContract`
 - 0xio Wallet Extension 2.5.5 or newer for the 2.8.0 private primitives and framed message signing; 2.4.0 or newer for private transfers and claims
 - 0xio Desktop 1.0 or newer for the iframe bridge, 0xio App 1.0 or newer for the WebView bridge

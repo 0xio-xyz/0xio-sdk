@@ -2,6 +2,18 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.10.0] - 2026-10-18
+
+### Added
+
+- `canSign` on `ConnectionInfo`, `ConnectEvent` and `AccountChangedEvent`: `false` for a watch-only wallet, `undefined` when the extension does not report it (older than 3.0.3; a missing `publicKey` then hints at watch-only).
+- `wallet.canSign()` returns `boolean | undefined`.
+- `ErrorCode.WATCH_ONLY`: every signing call from a watch-only wallet fails with it, private transfers and claims included. The RFC-O-1 adapter keeps it when the provider names it in the error data.
+
+### Changed
+
+- `SUPPORTED_EXTENSION_VERSIONS` is `>=2.0.1`, so extension 3.x reads as supported in `getSDKInfo()`.
+
 ## [2.9.0] - 2026-10-17
 
 ### Added
