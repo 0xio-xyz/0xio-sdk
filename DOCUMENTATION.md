@@ -56,8 +56,39 @@ Octra Network
 | **0xio Wallet Extension** | `window.postMessage` | Content script relays messages between DApp and extension background |
 | **0xio Desktop** | `window.parent.postMessage` (iframe) | DApp loaded in BrowserScreen iframe; desktop wallet bridges messages |
 | **0xio App** | `window.parent.postMessage` (WebView) | DApp loaded in built-in browser WebView; mobile wallet bridges messages |
+| **0xio Desktop, no extension** | WebSocket to `ws://127.0.0.1:19345` | Used only when no extension answers; the desktop reviews every request in its menu bar |
 
-The SDK auto-detects the environment. When `window.parent !== window`, it assumes a wallet bridge (desktop or mobile) is available. No code changes are needed for DApp developers.
+The SDK auto-detects the environment. When `window.parent !== window`, it assumes a wallet bridge (desktop or mobile) is available. No code changes are needed for DApp developers. `wallet.transport` reports `'extension'` or `'desktop'` after `initialize()`.
+
+### 0xio Desktop without the extension
+
+`initialize()` looks for the extension first, unchanged, and the extension always wins when present. When no extension answers in that window, and the site has not set `desktop: false`, the SDK reads the page's local network permission:
+
+| Permission | `initialize()` | `connect()` |
+|------------|----------------|-------------|
+| `granted`, or not reported by the browser | Opens the desktop (800 ms to connect); rejects with `EXTENSION_NOT_FOUND` when it does not answer | Uses the transport found |
+| `prompt` | Opens nothing; resolves `true` with `transport` `null` and `desktopAvailableOnConnect` `true` | Uses the extension if it has appeared, else opens the desktop and waits up to 20 seconds for the prompt; rejects with `EXTENSION_NOT_FOUND` when neither answers and tries again on the next call |
+| `denied` | Never opens the socket; rejects with `EXTENSION_NOT_FOUND` | |
+
+To open the desktop the SDK connects to `ws://127.0.0.1:19345` and sends `site_hello`. The desktop must answer `{ v: 1, wallet: "0xio-desktop" }`. The SDK then subscribes to the site's events and sends every SDK method as a `site_request`. It never sends a site or origin field: the desktop names the site from the browser's Origin header.
+
+It is tried only in a browser page that is a secure context (`https:`), or on plain `http:` for `localhost`, `127.0.0.1` and `[::1]`, and not with an adapter for another wallet.
+
+| Wire | Shape |
+|------|-------|
+| Hello | `{"v":1,"_id":1,"method":"site_hello"}` answered `{v:1, wallet:"0xio-desktop"}`, plus `version` and `network` when the site is connected |
+| Request | `{"v":1,"_id":n,"method":"site_request","id":"<32 hex>","network":"mainnet","request":{"method":"connect","params":{}}}` |
+| Reply | `{"_id":n,"id":"<32 hex>","result":...}` or `{"_id":n,"id":"<32 hex>","error":{"code":"USER_REJECTED","message":"..."}}` |
+| Cancel | `{"v":1,"_id":n,"method":"site_cancel","id":"<32 hex>"}` on timeout, `cleanup()` and `pagehide` |
+| Events | `{"v":1,"_id":n,"method":"sites_subscribe"}`, then `{"event":"site_event","origin":...,"kind":...,"data":...}` |
+
+Events reach the page in the extension's shapes: `accountsChanged` becomes `accountChanged` (or `disconnect` when `accounts` is empty), `networkChanged` becomes `networkChanged`, `tx` becomes `transactionConfirmed` (`transactionFailed` for a failed, rejected or dropped status), and `lock` becomes `extensionLocked` followed by `disconnect`.
+
+Error codes pass through as `ErrorCode` values; the desktop's `RATE_LIMITED` reads as `RATE_LIMIT_EXCEEDED`, and `AUTH_REQUIRED`, `PAIRING_REQUIRED` and `AUTH_FAILED` read as `NETWORK_ERROR`. Codes specific to the desktop: `NOT_AVAILABLE` (a private method while the desktop is on another network), `WALLET_CHANGED` (a private method while another wallet is open), `NETWORK_CHANGED` (the network or wallet moved during the review) and `UNSUPPORTED_METHOD` (`getPendingPrivateTransfers`).
+
+Results match the extension, with these differences: `getBalance()` reports `private: 0`, the `connect` payload carries `wallet: "0xio-desktop"`, and `getPrivateBalanceInfo()` returns `encrypted: null` with a message.
+
+Waits: reviews and proofs up to ten minutes, reads one minute; on a timeout the SDK sends `site_cancel`. One review waits at a time per page, as with the extension. When the socket drops, requests in flight fail with `NETWORK_ERROR`, the SDK emits `disconnect` with reason `network_error`, and the next call reopens the link, pausing 1 s, then 2 s, up to 30 s after each failed attempt.
 
 ## Installation
 
@@ -261,6 +292,9 @@ interface SDKConfig {
   requiredPermissions?: Permission[]; // Permissions to request
   networkId?: string;                // Target network ('mainnet' | 'devnet' | 'custom')
   debug?: boolean;                   // Enable debug logging
+  trustedParentOrigins?: string[];   // Exact parent origins for the iframe bridge
+  adapter?: WalletTransportAdapter;  // Another wallet's transport
+  desktop?: boolean;                 // Try 0xio Desktop when no extension answers (default true)
 }
 
 type Permission =
@@ -317,7 +351,15 @@ if (initialized) {
 
 **Returns:** `Promise<boolean>` - true if initialization successful
 
-**Throws:** `ZeroXIOWalletError` if extension not found or initialization fails
+**Throws:** `ZeroXIOWalletError` (`EXTENSION_NOT_FOUND`) when neither the extension nor 0xio Desktop answers, or when initialization fails
+
+#### `transport: 'extension' | 'desktop' | null`
+
+The transport in use after `initialize()`: `'extension'` for the extension or an app bridge, `'desktop'` for 0xio Desktop reached directly, `null` before, and while `desktopAvailableOnConnect` is true.
+
+#### `desktopAvailableOnConnect: boolean`
+
+True when `initialize()` found no extension and left 0xio Desktop for `connect()`, because Chrome would have to ask the visitor first. `initialize()` resolves `true` in this state and `isReady()` is `false`; keep the Connect button enabled. Methods other than `connect()` fail as with no wallet until `connect()` succeeds.
 
 ---
 
@@ -930,7 +972,7 @@ wallet.on('balanceChanged', (event) => {
 | Event | Data | Description |
 |-------|------|-------------|
 | `connect` | `ConnectEvent` | Wallet connected |
-| `disconnect` | `DisconnectEvent` | Wallet disconnected |
+| `disconnect` | `DisconnectEvent` | Wallet disconnected: `disconnect()`, the wallet ended the session (`user_action`), a lock (`extension_locked`) or the 0xio Desktop link dropped (`network_error`) |
 | `accountChanged` | `AccountChangedEvent` | User switched account (carries `canSign` from 2.10.0) |
 | `balanceChanged` | `BalanceChangedEvent` | Balance updated |
 | `networkChanged` | `NetworkChangedEvent` | Network switched |

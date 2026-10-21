@@ -2,7 +2,7 @@
 
 **Version 2.10.0**
 
-The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
+The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, with 0xio Desktop alone (no extension), inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md). The full API is in [DOCUMENTATION.md](DOCUMENTATION.md).
 
@@ -163,6 +163,8 @@ try {
       case ErrorCode.WATCH_ONLY:      // the wallet is watch-only and cannot sign
       case ErrorCode.INVALID_AMOUNT:  // bad unit or precision
       case ErrorCode.NONCE_TOO_FAR:   // node rejected the transaction
+      case ErrorCode.NOT_AVAILABLE:   // 0xio Desktop: switch the desktop to the site's network
+      case ErrorCode.WALLET_CHANGED:  // 0xio Desktop: open the wallet this site uses
         console.log(error.code, error.message);
     }
   }
@@ -195,8 +197,55 @@ console.log(devnet.isTestnet);       // true
 - **Browser extension.** The page talks to the extension over a private message channel that page scripts cannot read or forge.
 - **0xio Desktop.** The dapp runs in an iframe and the SDK relays requests to the desktop wallet. Set `trustedParentOrigins` in production; localhost is trusted by default for development.
 - **0xio App.** The dapp runs in a WebView and the SDK uses the app's bridge.
+- **0xio Desktop without the extension.** When no extension answers, the SDK reaches the desktop wallet directly. See below.
 
-No code changes are needed; the SDK detects the environment.
+No code changes are needed; the SDK detects the environment. `wallet.transport` says which one is in use after `initialize()`: `'extension'` (the extension or an app bridge) or `'desktop'`.
+
+## Using 0xio Desktop without the extension
+
+A visitor who has 0xio Desktop but not the extension can still use your site. `initialize()` first looks for the extension exactly as before, and the extension always wins when it is there. If none answers in that window:
+
+- When the browser already allows this site to reach local apps, or does not have that permission at all (Firefox, Safari), `initialize()` opens `ws://127.0.0.1:19345` (800 ms to connect) and checks that 0xio Desktop answers. If that fails too, it rejects with `EXTENSION_NOT_FOUND` as before.
+- When Chrome would have to ask first, `initialize()` opens nothing, so visitors without any wallet never see the prompt. It resolves `true` with `wallet.transport` still `null` and `wallet.desktopAvailableOnConnect` set to `true`. The next `connect()`, which follows a click, uses the extension if it has appeared since, else opens 0xio Desktop and waits for the visitor to answer the prompt. If no wallet answers, `connect()` rejects with `EXTENSION_NOT_FOUND` and the next `connect()` tries again.
+- When the visitor has blocked local network access for the site, the SDK never opens the socket.
+
+```typescript
+const wallet = new ZeroXIOWallet({ appName: 'My DApp' });
+await wallet.initialize();
+if (wallet.transport === 'desktop') {
+  // approvals happen in the 0xio Desktop menu bar
+}
+if (!wallet.isReady() && !wallet.desktopAvailableOnConnect) {
+  // no wallet: show install links
+}
+// Keep the Connect button enabled while desktopAvailableOnConnect is true.
+
+// Opt out: never reach for the desktop from this site.
+new ZeroXIOWallet({ appName: 'My DApp', desktop: false });
+```
+
+What the visitor sees:
+
+- **Chrome asks once, after Connect.** The first time, Chrome shows its local network permission prompt ("access other apps and services on this device") when the visitor clicks Connect, never on page load. While that prompt is open the SDK waits up to 20 seconds for the answer. If the visitor blocks it, the SDK stops trying on that site.
+- **Approvals in the menu bar.** Connect, signing, sending and network switches are reviewed in the 0xio Desktop menu bar, not in a popup. The SDK waits up to ten minutes for an answer and never retries a review.
+- **One console line without the desktop.** Where the socket is opened and nothing listens, the console shows one failed WebSocket line. Set `desktop: false` if you do not want that.
+
+When the SDK tries it:
+
+- Only in a browser page that is a secure context (`https:`), or on plain `http:` for `localhost`, `127.0.0.1` and `[::1]` during development.
+- Not with `desktop: false`, and not when you pass an adapter for another wallet.
+- The page never sends its own name: the browser's Origin header tells the desktop which site is asking.
+
+How it differs from the extension:
+
+- `getBalance()` returns `private: 0`; read private balances with `getPrivateBalance()`.
+- `connect()` reports `wallet: "0xio-desktop"`.
+- Private methods run only for the wallet open in the desktop and only while the desktop is on the site's network; otherwise they fail with `WALLET_CHANGED` or `NOT_AVAILABLE`, with a message that says what to switch.
+- `getPendingPrivateTransfers()` fails with `UNSUPPORTED_METHOD`; use `getPrivateBalance({ include_claimable: true })` and `claimPrivateTransfer()`.
+- A request can fail with `NETWORK_CHANGED` when the site's network or wallet moved while it waited for review.
+- At most 3 requests from a site wait at once, and 60 a minute; beyond that `RATE_LIMIT_EXCEEDED`.
+
+If the desktop quits or restarts, the SDK emits `disconnect` with reason `network_error` and fails requests in flight with `NETWORK_ERROR`. The next call opens the link again (after a short pause that grows when the desktop stays closed); call `getConnectionStatus()` to restore the session without a new review, or `connect()`.
 
 ## Wallet adapters
 
@@ -219,7 +268,7 @@ To add a wallet, copy `src/supports/template.ts`, fill in its constants and mess
 
 ## Timeouts
 
-Approvals wait up to three minutes, `deployContract` included. A private transfer waits up to ten, because the wallet builds proofs after the approval. Interactive methods are never retried, so a slow approval never produces a second popup.
+Approvals wait up to three minutes, `deployContract` and `switchNetwork` included. A private transfer waits up to ten, because the wallet builds proofs after the approval. Interactive methods are never retried, so a slow approval never produces a second popup. With 0xio Desktop directly, reviews and proofs wait up to ten minutes and reads one minute.
 
 ## Requirements
 
@@ -227,6 +276,7 @@ Approvals wait up to three minutes, `deployContract` included. A private transfe
 - 0xio Wallet Extension 3.0.0 or newer for `deployContract`
 - 0xio Wallet Extension 2.5.5 or newer for the 2.8.0 private primitives and framed message signing; 2.4.0 or newer for private transfers and claims
 - 0xio Desktop 1.0 or newer for the iframe bridge, 0xio App 1.0 or newer for the WebView bridge
+- A 0xio Desktop release with direct site support for use without the extension (older desktops are simply not found)
 - A current Chromium-based browser (Chrome, Edge, Brave) or Firefox
 
 ## License

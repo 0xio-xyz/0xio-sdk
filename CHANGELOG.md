@@ -2,6 +2,27 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.11.0] - 2026-10-21
+
+### Added
+
+- 0xio Desktop without the extension: when no extension answers, the SDK reaches 0xio Desktop at `ws://127.0.0.1:19345`; approvals happen in its menu bar. The extension is always preferred.
+- The desktop is opened in `initialize()` only when local network access is already granted or the browser has no such permission; when Chrome would ask, `initialize()` resolves with no transport and `connect()` opens it, so the prompt follows a click. Blocked access never opens a socket.
+- `wallet.transport`: `'extension'`, `'desktop'` or `null`. `WalletTransportKind` type.
+- `wallet.desktopAvailableOnConnect`: true while the desktop waits for `connect()`.
+- `SDKConfig.desktop` (default true); `desktop: false` never tries the desktop. Never tried outside a browser, on a page that is not a secure context (plain http only on localhost), or with an adapter for another wallet.
+- `ErrorCode.UNSUPPORTED_METHOD`, `ErrorCode.NETWORK_CHANGED` and `ErrorCode.WALLET_CHANGED`.
+- `DesktopTransport`, `canUseDesktopTransport` and `DESKTOP_WS_URL` exports.
+
+### Fixed
+
+- `switchNetwork` is an interactive call: no retry and a three minute wait, so a slow approval no longer opens a second review.
+- A `disconnect` the wallet sends now reaches the page as the `disconnect` event (reason `user_action`), and the SDK reads as not connected.
+
+### Changed
+
+- `NOT_AVAILABLE`, `UNSUPPORTED_METHOD`, `NETWORK_CHANGED` and `WALLET_CHANGED` keep their code through the private methods' error wrapping, like `WATCH_ONLY`.
+
 ## [2.10.0] - 2026-10-18
 
 ### Added
