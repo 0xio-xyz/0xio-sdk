@@ -27,6 +27,7 @@
 export { ZeroXIOWallet } from './wallet';
 export { EventEmitter } from './events';
 export { ExtensionCommunicator } from './communication';
+export { DesktopTransport, canUseDesktopTransport, DESKTOP_WS_URL } from './desktop';
 
 // Adapter exports: implement WalletTransportAdapter to add new wallet support
 export type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from './adapter';
@@ -52,6 +53,7 @@ export type {
   ConnectionInfo,
   ConnectOptions,
   SDKConfig,
+  WalletTransportKind,
 
   // Transaction types
   ContractParam,
@@ -169,6 +171,7 @@ export async function createZeroXIOWallet(config: {
   debug?: boolean;
   autoConnect?: boolean;
   adapter?: import('./adapter').WalletTransportAdapter;
+  desktop?: boolean;
 }) {
   const { ZeroXIOWallet } = await import('./wallet');
 
@@ -177,6 +180,7 @@ export async function createZeroXIOWallet(config: {
     appDescription: config.appDescription,
     debug: config.debug || false,
     ...(config.adapter ? { adapter: config.adapter } : {}),
+    ...(config.desktop === false ? { desktop: false } : {}),
   });
 
   await wallet.initialize();
@@ -232,6 +236,7 @@ export function checkSDKCompatibility(): {
     if (!hasExtension && !hasParentBridge) {
       recommendations.push(
         'No 0xio transport detected yet. Install the 0xio Wallet browser extension, ' +
+        'open 0xio Desktop (reached directly from secure pages), ' +
         'or run inside the 0xio Desktop/Mobile app iframe bridge.'
       );
     }

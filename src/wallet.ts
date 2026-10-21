@@ -1,5 +1,6 @@
 import { EventEmitter } from './events';
 import { ExtensionCommunicator } from './communication';
+import { DesktopTransport, canUseDesktopTransport, localNetworkPermission } from './desktop';
 import {
   Balance,
   ConnectionInfo,
@@ -22,7 +23,8 @@ import {
   DisconnectEvent,
   AccountChangedEvent,
   BalanceChangedEvent,
-  NetworkChangedEvent
+  NetworkChangedEvent,
+  WalletTransportKind
 } from './types';
 import { getNetworkConfig, createDefaultBalance, validateBalance, validateNetworkInfo } from './config';
 import { createLogger, isValidAddress, isValidAmount, deriveOctraAddress, octToMicro } from './utils';
@@ -32,13 +34,28 @@ import { buildAuthMessage } from './signing';
 const DEPLOY_MAX_CODE_BYTES = 512 * 1024;
 const DEPLOY_MAX_OU = 50_000_000;
 
+/** What the SDK needs from a transport; the extension communicator and 0xio Desktop both give it. */
+type Transport = Pick<ExtensionCommunicator, 'initialize' | 'isExtensionAvailable' | 'sendRequest' | 'on' | 'cleanup'>;
+
+const DISCONNECT_REASONS = new Set<DisconnectEvent['reason']>([
+  'user_action', 'extension_unavailable', 'network_error', 'extension_locked',
+]);
+
 /** The wallet's canSign as reported, or undefined when it sends none (older extensions). */
 const canSignOf = (value: unknown): boolean | undefined =>
   typeof value === 'boolean' ? value : undefined;
 
-/** A watch-only refusal keeps its own code through the per-method error wrapping. */
-function rethrowWatchOnly(error: unknown): void {
-  if (error instanceof ZeroXIOWalletError && error.code === ErrorCode.WATCH_ONLY) throw error;
+/** Refusals that say what to change in the wallet keep their own code through the per-method wrapping. */
+const KEPT_CODES = new Set<ErrorCode>([
+  ErrorCode.WATCH_ONLY,
+  ErrorCode.NOT_AVAILABLE,
+  ErrorCode.UNSUPPORTED_METHOD,
+  ErrorCode.NETWORK_CHANGED,
+  ErrorCode.WALLET_CHANGED,
+]);
+
+function rethrowWalletRefusal(error: unknown): void {
+  if (error instanceof ZeroXIOWalletError && KEPT_CODES.has(error.code)) throw error;
 }
 
 /** Bytes a strict base64 string decodes to, or null when it is not strict base64. */
@@ -49,7 +66,10 @@ function base64DecodedLength(value: string): number | null {
 }
 
 export class ZeroXIOWallet extends EventEmitter {
-  private communicator: ExtensionCommunicator;
+  private communicator: Transport;
+  private _transport: WalletTransportKind | null = null;
+  private _desktopOnConnect = false;
+  private _attachPromise: Promise<void> | null = null;
   private config: SDKConfig;
   private connectionInfo: ConnectionInfo = { isConnected: false };
   private isInitialized = false;
@@ -89,26 +109,33 @@ export class ZeroXIOWallet extends EventEmitter {
 
     this._initPromise = (async () => {
       try {
-        const communicationReady = await this.communicator.initialize();
+        let communicationReady = await this.communicator.initialize();
+        let transport: WalletTransportKind = 'extension';
+        if (!communicationReady && this.desktopAllowed()) {
+          const permission = await localNetworkPermission();
+          if (permission === 'prompt') {
+            // Opening the socket now would show the browser's prompt to every visitor without
+            // the extension; connect() is a user gesture and tries the desktop then.
+            this._desktopOnConnect = true;
+            this.isInitialized = true;
+            this.logger.log('No 0xio extension answered; 0xio Desktop will be tried on connect()');
+            return true;
+          }
+          if (permission !== 'denied' && await this.attachDesktop()) {
+            transport = 'desktop';
+            communicationReady = true;
+          }
+        }
         if (!communicationReady) {
           throw new ZeroXIOWalletError(
             ErrorCode.EXTENSION_NOT_FOUND,
-            'Failed to establish communication with 0xio Wallet extension'
+            this.desktopAllowed()
+              ? 'No 0xio wallet answered: install the 0xio extension or open 0xio Desktop'
+              : 'Failed to establish communication with 0xio Wallet extension'
           );
         }
 
-        await this.communicator.sendRequest('register_dapp', {
-          appName: this.config.appName,
-          appDescription: this.config.appDescription,
-          appVersion: this.config.appVersion,
-          appUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
-          appIcon: this.config.appIcon,
-          requiredPermissions: toWalletPermissions(this.config.requiredPermissions),
-          networkId: this.config.networkId
-        });
-
-        this.setupExtensionEventListeners();
-
+        await this.registerWithTransport(transport);
         this.isInitialized = true;
 
         this.logger.log('SDK initialized successfully');
@@ -134,12 +161,93 @@ export class ZeroXIOWallet extends EventEmitter {
     return this._initPromise;
   }
 
+  /** Registers the dapp with the chosen transport and follows its events. */
+  private async registerWithTransport(transport: WalletTransportKind): Promise<void> {
+    await this.communicator.sendRequest('register_dapp', {
+      appName: this.config.appName,
+      appDescription: this.config.appDescription,
+      appVersion: this.config.appVersion,
+      appUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
+      appIcon: this.config.appIcon,
+      requiredPermissions: toWalletPermissions(this.config.requiredPermissions),
+      networkId: this.config.networkId
+    });
+    this.setupExtensionEventListeners();
+    this._transport = transport;
+    this._desktopOnConnect = false;
+  }
+
+  /** Opens 0xio Desktop and makes it the transport. False when it does not answer. */
+  private async attachDesktop(): Promise<boolean> {
+    const desktop = new DesktopTransport({ debug: this.config.debug, networkId: this.config.networkId });
+    if (!(await desktop.initialize())) {
+      desktop.cleanup();
+      return false;
+    }
+    this.communicator.cleanup();
+    this.communicator = desktop;
+    this.logger.log('No 0xio extension answered; using 0xio Desktop');
+    return true;
+  }
+
+  /**
+   * connect() after an initialize() that deferred the desktop: the extension if it has appeared
+   * since, else 0xio Desktop, waiting for the browser's local network prompt.
+   */
+  private ensureTransportForConnect(): Promise<void> {
+    if (this._transport || !this._desktopOnConnect) return Promise.resolve();
+    if (!this._attachPromise) {
+      this._attachPromise = (async () => {
+        if (this.communicator.isExtensionAvailable() && await this.communicator.initialize()) {
+          await this.registerWithTransport('extension');
+          return;
+        }
+        if (!(await this.attachDesktop())) {
+          throw new ZeroXIOWalletError(
+            ErrorCode.EXTENSION_NOT_FOUND,
+            'No 0xio wallet answered: install the 0xio extension or open 0xio Desktop'
+          );
+        }
+        await this.registerWithTransport('desktop');
+      })().finally(() => {
+        this._attachPromise = null;
+      });
+    }
+    return this._attachPromise;
+  }
+
+  /**
+   * Which wallet transport is in use: `'extension'` (the 0xio extension or a parent app bridge)
+   * or `'desktop'` (0xio Desktop directly). `null` before initialize, and while
+   * `desktopAvailableOnConnect` is true.
+   */
+  get transport(): WalletTransportKind | null {
+    return this._transport;
+  }
+
+  /**
+   * True when initialize() found no extension and left 0xio Desktop for connect(): the browser
+   * would ask the visitor for local network access first, so the SDK waits for a user gesture.
+   * `transport` is null meanwhile; connect() picks the extension if it has appeared, else the desktop.
+   */
+  get desktopAvailableOnConnect(): boolean {
+    return this._desktopOnConnect && !this._transport;
+  }
+
+  /** 0xio Desktop is tried only when the site allows it, in a browser page that may reach it. */
+  private desktopAllowed(): boolean {
+    if (this.config.desktop === false) return false;
+    if (this.config.adapter && this.config.adapter.name !== '0xio') return false;
+    return canUseDesktopTransport();
+  }
+
   isReady(): boolean {
     return this.isInitialized && this.communicator.isExtensionAvailable();
   }
 
   async connect(options: ConnectOptions = {}): Promise<ConnectEvent> {
     this.ensureInitialized();
+    await this.ensureTransportForConnect();
 
     try {
       this.logger.log('Attempting to connect with options:', options);
@@ -868,6 +976,7 @@ export class ZeroXIOWallet extends EventEmitter {
       const result = await this.communicator.sendRequest('get_private_balance_info');
       return result;
     } catch (error) {
+      rethrowWalletRefusal(error);
       throw new ZeroXIOWalletError(
         ErrorCode.PERMISSION_DENIED,
         'Failed to get private balance info',
@@ -899,7 +1008,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      rethrowWatchOnly(error);
+      rethrowWalletRefusal(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to encrypt balance',
@@ -931,7 +1040,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      rethrowWatchOnly(error);
+      rethrowWalletRefusal(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to decrypt balance',
@@ -978,7 +1087,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      rethrowWatchOnly(error);
+      rethrowWalletRefusal(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to send private transfer',
@@ -999,7 +1108,7 @@ export class ZeroXIOWallet extends EventEmitter {
       const result = await this.communicator.sendRequest('get_pending_private_transfers');
       return result;
     } catch (error) {
-      rethrowWatchOnly(error);
+      rethrowWalletRefusal(error);
       throw new ZeroXIOWalletError(
         ErrorCode.NETWORK_ERROR,
         'Failed to get pending private transfers',
@@ -1034,7 +1143,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
       return result;
     } catch (error) {
-      rethrowWatchOnly(error);
+      rethrowWalletRefusal(error);
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to claim private transfer',
@@ -1272,6 +1381,10 @@ export class ZeroXIOWallet extends EventEmitter {
       this.emit('message', event.data ?? event);
     });
 
+    this.communicator.on('disconnect', (event) => {
+      this.handleWalletDisconnect(event.data);
+    });
+
     this.logger.log('Extension event listeners setup complete');
   }
 
@@ -1366,6 +1479,20 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Extension locked - disconnected');
   }
 
+  /** The wallet ended this site's session, or the link to it dropped. */
+  private handleWalletDisconnect(data: unknown): void {
+    if (!this.connectionInfo.isConnected) return;
+    ++this._sessionVersion;
+    this.connectionInfo = { isConnected: false };
+    const raw = (data as { reason?: unknown } | null)?.reason;
+    const reason = DISCONNECT_REASONS.has(raw as DisconnectEvent['reason'])
+      ? (raw as DisconnectEvent['reason'])
+      : 'user_action';
+    const disconnectEvent: DisconnectEvent = { reason };
+    this.emit('disconnect', disconnectEvent);
+    this.logger.log('Wallet disconnected:', reason);
+  }
+
   private handleExtensionUnlocked(): void {
     this.emit('extensionUnlocked', {});
     this.getConnectionStatus().catch(() => {
@@ -1437,6 +1564,8 @@ export class ZeroXIOWallet extends EventEmitter {
     this.connectionInfo = { isConnected: false };
     this.isInitialized = false;
     this._initPromise = null;
+    this._transport = null;
+    this._desktopOnConnect = false;
     ++this._sessionVersion;
 
     this.logger.log('SDK cleanup complete');

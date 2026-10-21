@@ -109,6 +109,8 @@ export class ExtensionCommunicator extends EventEmitter {
     // Shows an approval popup + broadcasts a registration tx (offscreen cold-init can exceed
     // 30s): interactive, long timeout, no retry.
     'register_private_view_key',
+    // Asks the user to confirm; a retry after a slow approval opened a second review.
+    'switch_network',
   ]);
 
   // Long-running compute primitives (RFP): proof generation / decrypt take 10-120s, so

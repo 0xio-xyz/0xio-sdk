@@ -309,7 +309,13 @@ export enum ErrorCode {
   DEPLOY_FAILED = 'DEPLOY_FAILED',
   DEPLOY_CHANGED = 'DEPLOY_CHANGED',
   /** The connected wallet is watch-only (no signing key). @since 2.10.0 */
-  WATCH_ONLY = 'WATCH_ONLY'
+  WATCH_ONLY = 'WATCH_ONLY',
+  /** The wallet has no answer for this method (0xio Desktop: `get_pending_private_transfers`). */
+  UNSUPPORTED_METHOD = 'UNSUPPORTED_METHOD',
+  /** The site's network or wallet moved while the request waited for review. */
+  NETWORK_CHANGED = 'NETWORK_CHANGED',
+  /** A private method for a site that uses another wallet than the one open in 0xio Desktop. */
+  WALLET_CHANGED = 'WALLET_CHANGED'
 }
 
 export class ZeroXIOWalletError extends Error {
@@ -381,7 +387,16 @@ export interface SDKConfig {
    * new ZeroXIOWallet({ appName: 'My DApp', adapter: QubitzAdapter });
    */
   readonly adapter?: import('./adapter').WalletTransportAdapter;
+  /**
+   * Try 0xio Desktop directly (`ws://127.0.0.1:19345`) when no 0xio extension answers.
+   * Default true. Never tried outside a browser, on a page that is not a secure context (plain
+   * http works only on localhost), or with an adapter for another wallet.
+   */
+  readonly desktop?: boolean;
 }
+
+/** How the SDK reaches the wallet: the 0xio extension (or a parent bridge), or 0xio Desktop directly. */
+export type WalletTransportKind = 'extension' | 'desktop';
 
 // Extension communication types
 export interface ExtensionRequest {

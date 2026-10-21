@@ -213,7 +213,10 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.RECIPIENT_NOT_REGISTERED]: 'Recipient has no private view key registered',
     [ErrorCode.DEPLOY_FAILED]: 'Contract deploy failed',
     [ErrorCode.DEPLOY_CHANGED]: 'The contract address changed during the review; nothing was sent',
-    [ErrorCode.WATCH_ONLY]: 'This wallet is watch-only and cannot sign'
+    [ErrorCode.WATCH_ONLY]: 'This wallet is watch-only and cannot sign',
+    [ErrorCode.UNSUPPORTED_METHOD]: 'The wallet does not support this method',
+    [ErrorCode.NETWORK_CHANGED]: 'The network or wallet changed while the request waited; nothing was sent',
+    [ErrorCode.WALLET_CHANGED]: 'Open the wallet this site uses in 0xio Desktop, then try again'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';
