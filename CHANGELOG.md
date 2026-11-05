@@ -2,7 +2,7 @@
 
 All notable changes to the 0xio Wallet SDK.
 
-## [Unreleased]
+## [2.12.0] - unreleased
 
 ### Security
 
