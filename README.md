@@ -235,6 +235,7 @@ When the SDK tries it:
 - Only in a browser page that is a secure context (`https:`), or on plain `http:` for `localhost`, `127.0.0.1` and `[::1]` during development.
 - Not with `desktop: false`, and not when you pass an adapter for another wallet.
 - The page never sends its own name: the browser's Origin header tells the desktop which site is asking.
+- The first approved `connect()` gives the page a site token, kept in the page's `localStorage` under `0xio:desktop-site-token`. On every new link the SDK shows it to the desktop, which restores the session only for that token; without it (cleared storage, a private window, SDK 2.11.0) the visitor approves `connect()` again. `disconnect()` forgets it.
 
 How it differs from the extension:
 
@@ -245,7 +246,7 @@ How it differs from the extension:
 - A request can fail with `NETWORK_CHANGED` when the site's network or wallet moved while it waited for review.
 - At most 3 requests from a site wait at once, and 60 a minute; beyond that `RATE_LIMIT_EXCEEDED`.
 
-If the desktop quits or restarts, the SDK emits `disconnect` with reason `network_error` and fails requests in flight with `NETWORK_ERROR`. The next call opens the link again (after a short pause that grows when the desktop stays closed); call `getConnectionStatus()` to restore the session without a new review, or `connect()`.
+If the desktop quits or restarts, the SDK emits `disconnect` with reason `network_error` and fails requests in flight with `NETWORK_ERROR`. The next call opens the link again (after a short pause that grows when the desktop stays closed); call `getConnectionStatus()` to restore the session without a new review (the site token proves the page), or `connect()`.
 
 ## Wallet adapters
 

@@ -2,6 +2,20 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [Unreleased]
+
+### Security
+
+- 0xio Desktop without the extension: an approved connect returns a site token that the page keeps in its own `localStorage` (`0xio:desktop-site-token`) and shows in every `site_hello` as `site_token`, so a local program sending the site's Origin header no longer passes as the site.
+
+### Added
+
+- The token is taken out of the `connect()` result and never reaches the dapp; it is forgotten on `disconnect()`, when the desktop disconnects the site, and when the desktop answers `token_status: "invalid"`.
+
+### Changed
+
+- With a 0xio Desktop that asks for the token, a page without one (blocked storage, SDK 2.11.0) is not connected on a new link until a new `connect()` is approved.
+
 ## [2.11.0] - 2026-10-21
 
 ### Added

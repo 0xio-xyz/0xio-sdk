@@ -76,11 +76,13 @@ It is tried only in a browser page that is a secure context (`https:`), or on pl
 
 | Wire | Shape |
 |------|-------|
-| Hello | `{"v":1,"_id":1,"method":"site_hello"}` answered `{v:1, wallet:"0xio-desktop"}`, plus `version` and `network` when the site is connected |
+| Hello | `{"v":1,"_id":1,"method":"site_hello","site_token":"<43 chars>"}` answered `{v:1, wallet:"0xio-desktop"}`, plus `version` and `network` when the token proves the connected site; `token_status` is `"valid"` or `"invalid"` whenever a token was sent |
 | Request | `{"v":1,"_id":n,"method":"site_request","id":"<32 hex>","network":"mainnet","request":{"method":"connect","params":{}}}` |
 | Reply | `{"_id":n,"id":"<32 hex>","result":...}` or `{"_id":n,"id":"<32 hex>","error":{"code":"USER_REJECTED","message":"..."}}` |
 | Cancel | `{"v":1,"_id":n,"method":"site_cancel","id":"<32 hex>"}` on timeout, `cleanup()` and `pagehide` |
 | Events | `{"v":1,"_id":n,"method":"sites_subscribe"}`, then `{"event":"site_event","origin":...,"kind":...,"data":...}` |
+
+Any local program can send an Origin header, so the desktop treats a link as the connected site only once its `site_hello` carries the site's token. An approved `connect` result carries `siteToken` (32 random bytes, base64url without padding); the desktop keeps only its SHA-256, compares it in constant time, and replaces it on each approved connect. The SDK takes it out of the result, stores it in `localStorage` under `0xio:desktop-site-token` (storage errors are ignored), sends it in every `site_hello`, and removes it on `disconnect()`, on an `accountsChanged` event with no accounts, and on `token_status: "invalid"`. A link without a valid token gets what an unconnected site gets: no events, an empty `sites_snapshot`, `NOT_CONNECTED` for reads and signing, and a fresh review for `connect`, whose approval proves that link. The desktop revokes the token when the site disconnects or is removed in its Settings.
 
 Events reach the page in the extension's shapes: `accountsChanged` becomes `accountChanged` (or `disconnect` when `accounts` is empty), `networkChanged` becomes `networkChanged`, `tx` becomes `transactionConfirmed` (`transactionFailed` for a failed, rejected or dropped status), and `lock` becomes `extensionLocked` followed by `disconnect`.
 

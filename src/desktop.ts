@@ -6,6 +6,10 @@ import { createLogger } from './utils';
  * Direct link from a page to 0xio Desktop over its local socket, used when no 0xio extension
  * answers. The browser sets the Origin header and the desktop names the site from it, so no
  * frame here carries a site or origin field. Every request is reviewed in the desktop menu bar.
+ *
+ * Any local program can send an Origin header, so the desktop also asks for a site token: an
+ * approved connect returns one (`siteToken`), the page keeps it in its own storage and shows it
+ * in every `site_hello` (`site_token`). Without it the desktop treats the page as not connected.
  */
 
 export const DESKTOP_WS_URL = 'ws://127.0.0.1:19345';
@@ -16,6 +20,44 @@ export const DESKTOP_READ_TIMEOUT_MS = 60_000;
 export const DESKTOP_REVIEW_TIMEOUT_MS = 600_000;
 export const DESKTOP_RETRY_BASE_MS = 1_000;
 export const DESKTOP_RETRY_MAX_MS = 30_000;
+/** Where the page keeps the site token 0xio Desktop gave it; localStorage is per origin. */
+export const DESKTOP_SITE_TOKEN_KEY = '0xio:desktop-site-token';
+
+const SITE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+function pageStorage(): Storage | undefined {
+  try {
+    return typeof window !== 'undefined' ? (window.localStorage ?? undefined) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The site token this page holds for 0xio Desktop, or null when it has none or cannot read it. */
+export function readSiteToken(): string | null {
+  try {
+    const t = pageStorage()?.getItem(DESKTOP_SITE_TOKEN_KEY);
+    return typeof t === 'string' && SITE_TOKEN_RE.test(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSiteToken(token: string): void {
+  try {
+    pageStorage()?.setItem(DESKTOP_SITE_TOKEN_KEY, token);
+  } catch {
+    // storage blocked: the next connection needs a connect review again
+  }
+}
+
+export function clearSiteToken(): void {
+  try {
+    pageStorage()?.removeItem(DESKTOP_SITE_TOKEN_KEY);
+  } catch {
+    // storage blocked: nothing kept
+  }
+}
 
 /** Methods that wait for a review in the menu bar or run a long proof. */
 const LONG_METHODS = new Set([
@@ -249,13 +291,23 @@ export class DesktopTransport extends EventEmitter {
         { id, method }
       );
       if (reply && typeof reply === 'object' && 'result' in reply) {
-        this.learnNetwork(method, params, reply.result);
-        return reply.result as T;
+        const result = method === 'connect' ? this.takeSiteToken(reply.result) : reply.result;
+        this.learnNetwork(method, params, result);
+        return result as T;
       }
       throw desktopError(reply);
     } finally {
       if (review) this.interactiveInFlight = false;
+      if (method === 'disconnect') clearSiteToken();
     }
+  }
+
+  /** Keeps the token an approved connect carries and hands the result back without it. */
+  private takeSiteToken(result: any): any {
+    if (!result || typeof result !== 'object' || !('siteToken' in result)) return result;
+    const { siteToken, ...rest } = result;
+    if (typeof siteToken === 'string' && SITE_TOKEN_RE.test(siteToken)) writeSiteToken(siteToken);
+    return rest;
   }
 
   /** Sends one frame and waits for the reply with the same `_id`. */
@@ -377,10 +429,12 @@ export class DesktopTransport extends EventEmitter {
     this.ws = ws;
 
     try {
-      const hello = await this.call('site_hello', {}, DESKTOP_HELLO_TIMEOUT_MS);
+      const token = readSiteToken();
+      const hello = await this.call('site_hello', token ? { site_token: token } : {}, DESKTOP_HELLO_TIMEOUT_MS);
       if (hello?.v !== 1 || hello?.wallet !== '0xio-desktop') {
         throw new Error('not 0xio Desktop');
       }
+      if (hello.token_status === 'invalid') clearSiteToken();
       if (typeof hello.version === 'string') this.version = hello.version.slice(0, 32);
       if (validNetworkId(hello.network)) this.network = hello.network;
       const sub = await this.call('sites_subscribe', {}, DESKTOP_HELLO_TIMEOUT_MS);
@@ -423,6 +477,7 @@ export class DesktopTransport extends EventEmitter {
     if (typeof msg.origin === 'string' && own && msg.origin !== own) return;
     const ev = desktopSiteEvent(msg.kind, msg.data);
     if (!ev) return;
+    if (ev.type === 'disconnect') clearSiteToken();
     if (ev.type === 'networkChanged' && validNetworkId(ev.data.networkInfo?.id)) {
       this.network = ev.data.networkInfo.id;
     }

@@ -7,6 +7,8 @@ import {
   desktopSiteEvent,
   DESKTOP_REVIEW_TIMEOUT_MS,
   DESKTOP_RETRY_BASE_MS,
+  DESKTOP_SITE_TOKEN_KEY,
+  readSiteToken,
 } from '../src/desktop';
 import { ErrorCode, ZeroXIOWalletError } from '../src/types';
 import { createLogger } from '../src/utils';
@@ -35,7 +37,16 @@ class MockDesktop {
   frames: any[] = [];
   connected = false;
   network = 'mainnet';
+  /** The site token the desktop keeps for the page; an approved connect replaces it. */
+  token: string | null = null;
+  issued = 0;
   onRequest: Handler = (msg) => defaultAnswer(msg, this);
+
+  issueToken(): string {
+    this.issued += 1;
+    this.token = String(this.issued).padStart(43, 'T');
+    return this.token;
+  }
 
   accept(sock: FakeSocket): void {
     this.sockets.push(sock);
@@ -56,9 +67,12 @@ class MockDesktop {
     this.frames.push(msg);
     let reply: Reply;
     if (msg.method === 'site_hello') {
-      reply = this.connected
+      const sent = msg.site_token;
+      const valid = this.connected && sent !== undefined && sent === this.token;
+      reply = valid
         ? { v: 1, wallet: '0xio-desktop', version: '0.6.0', network: this.network }
         : { v: 1, wallet: '0xio-desktop' };
+      if (sent !== undefined) reply.token_status = valid ? 'valid' : 'invalid';
     } else if (msg.method === 'sites_subscribe') {
       reply = { ok: true };
     } else if (msg.method === 'site_cancel') {
@@ -88,6 +102,7 @@ function defaultAnswer(msg: any, d: MockDesktop): Reply {
       d.connected = true;
       return {
         result: {
+          siteToken: d.issueToken(),
           address: ADDRESS,
           canSign: true,
           wallet: '0xio-desktop',
@@ -142,11 +157,23 @@ const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
 
 let pageListeners: Record<string, Set<(e: any) => void>>;
 
+let stored: Map<string, string>;
+
+function memoryStorage() {
+  stored = new Map();
+  return {
+    getItem: (k: string) => stored.get(k) ?? null,
+    setItem: (k: string, v: string) => void stored.set(k, String(v)),
+    removeItem: (k: string) => void stored.delete(k),
+  };
+}
+
 function fakeWindow(location: { protocol: string; hostname: string; origin: string }, isSecureContext = true) {
   pageListeners = {};
   const win: any = {
     location,
     isSecureContext,
+    localStorage: memoryStorage(),
     postMessage: () => {},
     addEventListener: (t: string, fn: any) => {
       (pageListeners[t] ??= new Set()).add(fn);
@@ -686,11 +713,109 @@ describe('socket drop and lazy reconnect', () => {
   it('learns the network from the hello of a desktop that already knows the site', async () => {
     desktop.connected = true;
     desktop.network = 'devnet';
+    stored.set(DESKTOP_SITE_TOKEN_KEY, desktop.issueToken());
     const t = new DesktopTransport();
     await t.initialize();
     expect(t.networkId).toBe('devnet');
     expect(t.desktopVersion).toBe('0.6.0');
     t.cleanup();
+  });
+});
+
+describe('site token', () => {
+  const hellos = () => desktop.frames.filter((f) => f.method === 'site_hello');
+
+  it('keeps the token of an approved connect out of the result and shows it in the next hello', async () => {
+    const w = await desktopWallet();
+    expect(hellos()[0]).not.toHaveProperty('site_token');
+    const res = await w.connect();
+    expect(res).not.toHaveProperty('siteToken');
+    expect((res as any).siteToken).toBeUndefined();
+    expect(stored.get(DESKTOP_SITE_TOKEN_KEY)).toBe(desktop.token);
+    for (const f of desktop.requests()) expect(JSON.stringify(f)).not.toContain(desktop.token!);
+
+    const first = desktop.token;
+    desktop.last().drop();
+    await w.connect();
+    expect(hellos()).toHaveLength(2);
+    expect(hellos()[1].site_token).toBe(first);
+    expect(stored.get(DESKTOP_SITE_TOKEN_KEY)).toBe(desktop.token);
+    w.cleanup();
+  });
+
+  it('restores the connected site on a new page load without a connect review', async () => {
+    desktop.connected = true;
+    stored.set(DESKTOP_SITE_TOKEN_KEY, desktop.issueToken());
+    const t = new DesktopTransport();
+    expect(await t.initialize()).toBe(true);
+    expect(hellos()[0].site_token).toBe(desktop.token);
+    expect(t.desktopVersion).toBe('0.6.0');
+    expect(readSiteToken()).toBe(desktop.token);
+    t.cleanup();
+  });
+
+  it('forgets a token the desktop calls invalid', async () => {
+    desktop.connected = true;
+    desktop.issueToken();
+    stored.set(DESKTOP_SITE_TOKEN_KEY, 'F'.repeat(43));
+    const t = new DesktopTransport();
+    await t.initialize();
+    expect(hellos()[0].site_token).toBe('F'.repeat(43));
+    expect(t.desktopVersion).toBeUndefined();
+    expect(stored.has(DESKTOP_SITE_TOKEN_KEY)).toBe(false);
+    t.cleanup();
+  });
+
+  it('forgets the token on disconnect(), even when the desktop does not answer', async () => {
+    const w = await desktopWallet();
+    await w.connect();
+    expect(stored.has(DESKTOP_SITE_TOKEN_KEY)).toBe(true);
+    desktop.onRequest = (msg) =>
+      msg.request.method === 'disconnect' ? { error: { code: 'NOT_CONNECTED', message: 'x' } } : defaultAnswer(msg, desktop);
+    await w.disconnect().catch(() => undefined);
+    expect(stored.has(DESKTOP_SITE_TOKEN_KEY)).toBe(false);
+    w.cleanup();
+  });
+
+  it('forgets the token when the desktop disconnects the site, but not when the socket drops', async () => {
+    const w = await desktopWallet();
+    await w.connect();
+    desktop.last().drop();
+    expect(stored.has(DESKTOP_SITE_TOKEN_KEY)).toBe(true);
+    await w.connect();
+    desktop.last().push({ event: 'site_event', v: 1, origin: ORIGIN, kind: 'accountsChanged', data: { accounts: [] } });
+    expect(stored.has(DESKTOP_SITE_TOKEN_KEY)).toBe(false);
+    w.cleanup();
+  });
+
+  it('ignores a malformed token and works when storage throws', async () => {
+    stored.set(DESKTOP_SITE_TOKEN_KEY, 'short');
+    expect(readSiteToken()).toBeNull();
+    desktop.onRequest = (msg) => {
+      const r: any = defaultAnswer(msg, desktop);
+      if (msg.request.method === 'connect') r.result.siteToken = 'not a token';
+      return r;
+    };
+    const t = new DesktopTransport();
+    await t.initialize();
+    expect(hellos()[0]).not.toHaveProperty('site_token');
+    const res = await t.sendRequest('connect', {});
+    expect(res).not.toHaveProperty('siteToken');
+    expect(stored.get(DESKTOP_SITE_TOKEN_KEY)).toBe('short');
+    t.cleanup();
+
+    const boom = () => {
+      throw new Error('SecurityError');
+    };
+    (globalThis as any).window.localStorage = { getItem: boom, setItem: boom, removeItem: boom };
+    desktop.onRequest = (msg) => defaultAnswer(msg, desktop);
+    const w = await desktopWallet();
+    await expect(w.connect()).resolves.toMatchObject({ address: ADDRESS });
+    await w.disconnect();
+    w.cleanup();
+
+    Object.defineProperty((globalThis as any).window, 'localStorage', { get: boom });
+    expect(readSiteToken()).toBeNull();
   });
 });
 
