@@ -1,74 +1,34 @@
-/**
- * 0xio SDK: Wallet Transport Adapter Interface
- *
- * Implement WalletTransportAdapter to add support for a new wallet without
- * touching any core SDK code. Drop the adapter file in src/supports/ and
- * pass it to ZeroXIOWallet via SDKConfig.adapter.
- *
- * @example
- * ```typescript
- * import { ZeroXIOWallet } from '@0xio/sdk';
- * import { QubitzAdapter } from '@0xio/sdk/supports/qubitz';
- *
- * const wallet = new ZeroXIOWallet({
- *   appName: 'My DApp',
- *   adapter: QubitzAdapter,
- * });
- * ```
- */
-
-/**
- * Outbound request: the SDK passes this to adapter.postRequest() for every
- * outbound wallet call. Adapters translate this into their wallet-specific wire format.
- */
+/** What the SDK hands `postRequest` for every outbound call. */
 export interface AdapterRequest {
-  /** Unique request ID (UUID). Used to correlate the response. */
+  /** Correlates the response. */
   id: string;
-  /** Method name, e.g. 'connect', 'sendTransaction', 'signMessage' */
   method: string;
-  /** Method parameters */
   params: unknown;
-  /** Unix timestamp (ms) when the request was created */
   timestamp: number;
+  /** Old wallets ignore it. @since 2.12.0 */
+  v?: 2;
+  /** Review methods only. @since 2.12.0 */
+  rid?: string;
 }
 
-/**
- * Normalized inbound message from a wallet.
- * Adapters translate their wallet-specific wire format into this structure
- * and pass it to the handler registered via listen().
- *
- * A message is either a response (requestId set) or a push event (eventType set).
- */
+/** A response (`requestId` set) or a push event (`eventType` set). */
 export interface AdapterIncomingMessage {
-  // ---- Response fields (set when responding to a specific request) ----
-
-  /** Must match the id from the outbound AdapterRequest */
+  /** The `id` of the request it answers. */
   requestId?: string;
-  /** Whether the request succeeded. Required when requestId is set. */
+  /** Required when `requestId` is set. */
   success?: boolean;
-  /** Response payload on success */
   data?: unknown;
-  /** Structured error on failure */
-  error?: { code: string; message: string; details?: unknown };
-
-  // ---- Event fields (set for unsolicited push events from the wallet) ----
-
-  /** Event type, e.g. 'connect', 'disconnect', 'accountChanged', 'balanceChanged' */
+  error?: { code: string; message: string; status?: string; details?: unknown };
+  /** Protocol 2 error answers carry these at the top level too. @since 2.12.0 */
+  rid?: string;
+  status?: string;
   eventType?: string;
-  /** Event payload */
   eventData?: unknown;
 }
 
 /**
- * Wallet transport adapter.
- *
- * Encapsulates the entire wallet-specific communication layer:
- * - How to detect if the wallet is installed
- * - How to send requests (postRequest)
- * - How to receive responses and events (listen)
- *
- * Everything else (request lifecycle, timeouts, retries, rate limiting,
- * event routing) is handled by the SDK core and does not change per wallet.
+ * The wallet specific layer: detection, sending and listening. Lifecycle, timeouts, retries, rate
+ * limits and event routing stay in the SDK core.
  *
  * @example Minimal adapter for a hypothetical wallet
  * ```typescript
@@ -90,58 +50,30 @@ export interface AdapterIncomingMessage {
  * ```
  */
 export interface WalletTransportAdapter {
-  /**
-   * Machine-readable wallet identifier. Used in logs and adapter selection.
-   * Examples: '0xio', 'qubitz', 'fhex'
-   */
+  /** Machine readable id, such as '0xio'. */
   readonly name: string;
 
-  /**
-   * Human-readable wallet name shown in error messages.
-   * Examples: '0xio Wallet', 'Qubitz Wallet', 'FHEX Wallet'
-   */
+  /** Shown in error messages. */
   readonly displayName: string;
 
-  /**
-   * Returns true when this wallet's extension / injected provider is present
-   * in the current page context. Called periodically by the SDK to check availability.
-   */
+  /** True when the wallet is present in the page; polled by the SDK. */
   detect(): boolean;
 
-  /**
-   * Send a request to the wallet.
-   * Called once per outbound request: translate AdapterRequest into your
-   * wallet's wire format and post it (window.postMessage, direct API call, etc.).
-   */
   postRequest(request: AdapterRequest): void;
 
-  /**
-   * Optional: send the same request to a trusted parent frame (iframe/desktop bridge).
-   * Only implement this if your wallet supports an embedded iframe bridge mode.
-   * The SDK calls this when window.parent !== window and a trusted parent origin exists.
-   */
+  /** Only for wallets with an iframe bridge; called when a trusted parent origin exists. */
   postRequestToParent?(request: AdapterRequest, parentOrigin: string): void;
 
   /**
-   * Set up response and event listening.
-   * The SDK calls this once during initialization. Normalise all incoming wallet
-   * messages into AdapterIncomingMessage and pass them to handler.
-   *
-   * @param handler  Callback for responses and push events
-   * @param options  SDK-level options, e.g. additional trusted parent origins
-   * @returns        A teardown function. The SDK calls it on cleanup()
+   * @param handler  Receives responses and push events
+   * @param options  Extra trusted parent origins
+   * @returns        A teardown function, called on cleanup()
    */
   listen(
     handler: (msg: AdapterIncomingMessage) => void,
     options?: { trustedParentOrigins?: string[] }
   ): () => void;
 
-  /**
-   * Optional: register wallet-ready event listeners (e.g. 'myWalletReady' CustomEvent).
-   * Called once during SDK init. When the wallet signals it is ready, call onReady().
-   * Returns a cleanup function.
-   *
-   * If not implemented, the SDK falls back to polling detect() every 2 seconds.
-   */
+  /** Calls `onReady` when the wallet signals; without it the SDK polls `detect()` every 2 s. */
   listenForReady?(onReady: () => void): () => void;
 }

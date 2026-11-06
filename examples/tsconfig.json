@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "jsx": "react-jsx",
+    "types": [],
+    "paths": { "@0xio/sdk": ["../src/index.ts"] }
+  },
+  "include": ["./**/*.ts", "./**/*.tsx"]
+}

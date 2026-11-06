@@ -1,9 +1,3 @@
-/**
- * 0xio SDK: Wallet Adapter Registry
- *
- * Add new wallet adapters here. Detection order determines which wallet takes
- * priority when multiple wallets are installed at the same time.
- */
 
 export { ZeroXIOAdapter, createZeroXIOAdapter } from './0xio';
 export { OctraProviderAdapter, createOctraProviderAdapter } from './octra-provider';
@@ -13,14 +7,13 @@ import { ZeroXIOAdapter } from './0xio';
 import { OctraProviderAdapter } from './octra-provider';
 
 const REGISTERED_ADAPTERS: WalletTransportAdapter[] = [
-  ZeroXIOAdapter,       // 0xio extension (postMessage protocol), highest priority
-  OctraProviderAdapter, // any RFC-O-1 compliant wallet (window.octra)
-  // Add new wallet adapters here: detection runs in order, first match wins
+  ZeroXIOAdapter,
+  OctraProviderAdapter,
+  // detection runs in this order, first match wins
 ];
 
 /**
- * Auto-detects the first available wallet in the current page.
- * Returns null if no supported wallet is found.
+ * The first registered wallet present in the page, or null.
  *
  * @example
  * const adapter = detectWalletAdapter();
@@ -32,7 +25,6 @@ export function detectWalletAdapter(): WalletTransportAdapter | null {
   return REGISTERED_ADAPTERS.find((a) => a.detect()) ?? null;
 }
 
-/** Returns all registered adapter instances. */
 export function getAllAdapters(): WalletTransportAdapter[] {
   return [...REGISTERED_ADAPTERS];
 }

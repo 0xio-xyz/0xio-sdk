@@ -1,21 +1,6 @@
-/**
- * RFC-O-1 OctraProvider transport adapter.
- *
- * Targets any wallet that exposes `window.octra` per the RFC-O-1 specification:
- *   window.octra.isOctra === true
- *   window.octra.request({ method, params }) returns Promise<unknown>
- *   window.octra.on(event, listener) / removeListener(event, listener)
- *
- * This adapter translates the SDK's internal method names into RFC-O-1 method
- * names and maps events back to the SDK event vocabulary.
- *
- * Non-standard SDK methods (ping, register_dapp, getTransactionHistory, etc.)
- * are passed through as-is; the wallet's request() handles or rejects them.
- */
 
 import type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from '../adapter';
 
-/** SDK method to RFC-O-1 method name */
 const SDK_TO_RFC: Record<string, string> = {
   get_network_info: 'octra_networkInfo',
   switch_network: 'octra_switchNetwork',
@@ -41,7 +26,6 @@ const SDK_TO_RFC: Record<string, string> = {
   send_contract_transaction_sequence: 'octra_sendContractTransactionSequence',
 };
 
-/** RFC-O-1 error code to SDK ErrorCode string */
 const RFC_TO_SDK_ERROR: Record<number, string> = {
   4001: 'USER_REJECTED',
   4100: 'PERMISSION_DENIED',
@@ -55,22 +39,19 @@ function getProvider(): any {
 }
 
 function mapError(err: any): { code: string; message: string } {
-  // A wallet that names the watch-only refusal in the error data keeps that code.
   const code =
     err?.data?.code === 'WATCH_ONLY' ? 'WATCH_ONLY' : (RFC_TO_SDK_ERROR[err?.code] ?? 'UNKNOWN_ERROR');
   return { code, message: err?.message ?? 'Request failed' };
 }
 
-/** The provider's canSign when it exposes one as a boolean, else unknown. */
+function providerSpeaksRequestId(provider: any): boolean {
+  return Array.isArray(provider?.capabilities) && provider.capabilities.includes('request_id');
+}
+
 function providerCanSign(provider: any): boolean | undefined {
   return typeof provider?.canSign === 'boolean' ? provider.canSign : undefined;
 }
 
-/**
- * Build a connect response compatible with what the SDK expects
- * ({ address, networkInfo, permissions, balance }) by making
- * three RFC-O-1 calls: octra_requestAccounts, octra_networkInfo, octra_permissions.
- */
 async function rfcConnect(provider: any, params: unknown): Promise<unknown> {
   const requestPerms = (params as any)?.permissions ?? (params as any)?.requestPermissions ?? [];
   const accounts = (await provider.request({
@@ -88,9 +69,6 @@ async function rfcConnect(provider: any, params: unknown): Promise<unknown> {
   return { address, networkInfo, permissions, balance: null, canSign: providerCanSign(provider) };
 }
 
-/**
- * Build a getConnectionStatus response by checking octra_accounts.
- */
 async function rfcConnectionStatus(provider: any): Promise<unknown> {
   const accounts = (await provider.request({ method: 'octra_accounts' })) as string[];
   const address = accounts?.[0] ?? null;
@@ -119,7 +97,7 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
     },
 
     postRequest(request: AdapterRequest): void {
-      const { id, method, params } = request;
+      const { id, method, params, rid } = request;
       const provider = getProvider();
 
       if (!provider) {
@@ -148,7 +126,8 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
             data = await rfcConnectionStatus(provider);
           } else {
             const rfcMethod = SDK_TO_RFC[method] ?? method;
-            data = await provider.request({ method: rfcMethod, params });
+            const withRid = rid && providerSpeaksRequestId(provider) ? { rid } : {};
+            data = await provider.request({ method: rfcMethod, params, ...withRid });
           }
 
           _handler?.({ requestId: id, success: true, data });
@@ -165,7 +144,6 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
       const provider = getProvider();
       if (!provider) return () => { _handler = null; };
 
-      // RFC-O-1 event to SDK event name and data shape
       const onConnect = (data: any) =>
         handler({ eventType: 'connect', eventData: data });
       const onDisconnect = (data: any) =>
@@ -220,5 +198,4 @@ export function createOctraProviderAdapter(): WalletTransportAdapter {
   };
 }
 
-/** Default RFC-O-1 adapter instance. */
 export const OctraProviderAdapter = createOctraProviderAdapter();

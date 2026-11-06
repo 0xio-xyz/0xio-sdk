@@ -1,41 +1,47 @@
-/**
- * 0xio Wallet SDK - Main Entry Point
- * Official SDK for integrating with 0xio Wallet Extension
- *
- * @example
- * ```typescript
- * import { ZeroXIOWallet } from '@0xio/sdk';
- *
- * const wallet = new ZeroXIOWallet({
- *   appName: 'My DApp',
- *   appDescription: 'An awesome decentralized application',
- *   requiredPermissions: ['read_balance', 'send_transactions', 'sign_messages']
- * });
- *
- * await wallet.initialize();
- * await wallet.connect();
- *
- * const balance = await wallet.getBalance();
- * console.log('Balance:', balance.total, 'OCT');
- *
- * const signature = await wallet.signMessage('Hello, 0xio!');
- * console.log('Signature:', signature);
- * ```
- */
+import { SDK_VERSION } from './version';
 
-// Main exports
 export { ZeroXIOWallet } from './wallet';
 export { EventEmitter } from './events';
 export { ExtensionCommunicator } from './communication';
 export { DesktopTransport, canUseDesktopTransport, DESKTOP_WS_URL } from './desktop';
 
-// Adapter exports: implement WalletTransportAdapter to add new wallet support
+export { detectWallet, isMobileBrowser } from './detect';
+export {
+  WALLET_PROTOCOL,
+  SUPPORTED_PROTOCOLS,
+  WALLET_CAPABILITIES,
+  WALLET_KINDS,
+  ANNOUNCE_EVENT,
+  ANNOUNCE_REQUEST_EVENT,
+  LIFECYCLE_METHODS,
+  TRANSACTION_METHODS,
+  REQUEST_STATUSES,
+  FINAL_REQUEST_STATUSES,
+  REQUEST_STATUS_TRANSITIONS,
+  WIRE_ERROR_CODES,
+  LIFECYCLE_LIMITS,
+  CONFIRM_WAIT_MS,
+  STATUS_POLL_MS,
+  DEFAULT_DETECT_TIMEOUT_MS,
+  OPEN_IN_APP_URL,
+  OPEN_IN_APP_SCHEME_URL,
+  newRequestId,
+  isRequestId,
+  isFinalStatus,
+  canTransition,
+  canonicalJson,
+  requestDigest,
+  requestDigestInput,
+  parseRequestStatus,
+  openInAppUrl,
+} from './lifecycle';
+export type { WalletCapability, AnnounceDetail } from './lifecycle';
+
 export type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from './adapter';
 export { ZeroXIOAdapter, createZeroXIOAdapter } from './supports/0xio';
 export { OctraProviderAdapter, createOctraProviderAdapter } from './supports/octra-provider';
 export { detectWalletAdapter, getAllAdapters } from './supports';
 
-// Permission names: the wallet's scopes, the older SDK names, and the translation between them
 export {
   WALLET_PERMISSIONS,
   LEGACY_PERMISSION_MAP,
@@ -44,9 +50,7 @@ export {
 } from './permissions';
 export type { WalletPermission } from './permissions';
 
-// Type exports
 export type {
-  // Core types
   WalletAddress,
   Balance,
   NetworkInfo,
@@ -55,7 +59,6 @@ export type {
   SDKConfig,
   WalletTransportKind,
 
-  // Transaction types
   ContractParam,
   ContractParams,
   ContractCallData,
@@ -69,7 +72,6 @@ export type {
   TransactionHistory,
   Transaction,
 
-  // Event types
   WalletEventType,
   WalletEvent,
   ConnectEvent,
@@ -80,23 +82,36 @@ export type {
   TransactionConfirmedEvent,
   ErrorEvent,
 
-  // Private balance types
   PrivateBalanceInfo,
   PrivateTransferData,
   PendingPrivateTransfer,
+  PrivateViewKeyRegistration,
 
-  // Permission types
   Permission,
 
-  // Communication types
   ExtensionRequest,
-  ExtensionResponse
+  ExtensionResponse,
+  WalletKind,
+  WalletProtocolVersion,
+  WalletInfo,
+  RequestStatusValue,
+  RequestStatus,
+  RequestStatusError,
+  ContractReceipt,
+  ContractReceiptEvent,
+  ReviewOptions,
+  WriteOptions,
+  WriteOutcome,
+  WaitForRequestOptions,
+  PendingRequestInfo,
+  DesktopPresence,
+  DetectResult,
+  DetectOptions,
+  ConnectProgressEvent
 } from './types';
 
-// Error exports
 export { ErrorCode, ZeroXIOWalletError } from './types';
 
-// Configuration exports
 export {
   NETWORKS,
   DEFAULT_NETWORK_ID,
@@ -108,48 +123,38 @@ export {
   isValidNetworkId
 } from './config';
 
-// Utility exports
 export {
-  // Validation utilities
   isValidAddress,
   isValidAmount,
   isValidMessage,
   isValidFeeLevel,
 
-  // Address derivation
   deriveOctraAddress,
 
-  // Formatting utilities
   formatOCT,
   formatOCT as formatZeroXIO,
   formatAddress,
   formatTimestamp,
   formatTxHash,
 
-  // Conversion utilities
   toMicroOCT,
   toMicroOCT as toMicroZeroXIO,
   octToMicro,
   fromMicroOCT,
   fromMicroOCT as fromMicroZeroXIO,
 
-  // Error utilities
   createErrorMessage,
   isErrorType,
 
-  // Async utilities
   delay,
 
-  // Browser utilities
   isBrowser,
   checkBrowserSupport,
 
-  // Development utilities
   generateMockData,
   createLogger
 } from './utils';
 
-// Message-signing standard (0xio Signed Message v1)
 export {
   SIGNED_MESSAGE_PREFIX,
   SIGNED_MESSAGE_VERSION,
@@ -158,13 +163,11 @@ export {
   verifyMessage
 } from './signing';
 
-// Version information
-export const SDK_VERSION = '2.12.0';
-export const MIN_EXTENSION_VERSION = '2.0.1'; // Mainnet Alpha
-export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1'; // Devnet (contract calls, privacy)
-export const SUPPORTED_EXTENSION_VERSIONS = '>=2.0.1'; // Every extension from 2.0.1 on, 3.x included
+export { SDK_VERSION };
+export const MIN_EXTENSION_VERSION = '2.0.1';
+export const MIN_EXTENSION_VERSION_DEVNET = '2.2.1';
+export const SUPPORTED_EXTENSION_VERSIONS = '>=2.0.1';
 
-// Quick setup function for simple use cases
 export async function createZeroXIOWallet(config: {
   appName: string;
   appDescription?: string;
@@ -189,15 +192,13 @@ export async function createZeroXIOWallet(config: {
     try {
       await wallet.connect();
     } catch {
-      // Don't throw - let the app handle connection manually
+      // connect() failures are left to the app
     }
   }
 
   return wallet;
 }
 
-
-// Browser detection and compatibility check
 export function checkSDKCompatibility(): {
   compatible: boolean;
   issues: string[];
@@ -206,7 +207,6 @@ export function checkSDKCompatibility(): {
   const issues: string[] = [];
   const recommendations: string[] = [];
 
-  // Hard blockers: the SDK cannot function without these
   if (typeof window === 'undefined') {
     issues.push('Window object not available');
     recommendations.push('SDK must be used in a browser environment');
@@ -226,7 +226,6 @@ export function checkSDKCompatibility(): {
     issues.push('Promise not available');
   }
 
-  // Informational: note which transport is likely active
   if (issues.length === 0) {
     const win = window as any;
     const hasExtension = !!(win.wallet0xio || win.ZeroXIOWallet || win.chrome?.runtime?.id ||
@@ -249,23 +248,18 @@ export function checkSDKCompatibility(): {
   };
 }
 
-// Development helpers
 if (typeof window !== 'undefined') {
-  // Expose SDK version for debugging (support both old and new naming)
   (window as any).__OCTRA_SDK_VERSION__ = SDK_VERSION;
   (window as any).__ZEROXIO_SDK_VERSION__ = SDK_VERSION;
 
-  // Development mode detection
   const isDevelopment = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.NODE_ENV === 'development') ||
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1';
 
   if (isDevelopment) {
-    // Set debug flag but don't automatically log
     (window as any).__OCTRA_SDK_DEBUG__ = true;
     (window as any).__ZEROXIO_SDK_DEBUG__ = true;
 
-    // Expose debugging utilities (new branding)
     (window as any).__ZEROXIO_SDK_UTILS__ = {
       enableDebugMode: () => {
         (window as any).__ZEROXIO_SDK_DEBUG__ = true;
@@ -284,19 +278,12 @@ if (typeof window !== 'undefined') {
         debugMode: !!(window as any).__ZEROXIO_SDK_DEBUG__,
         environment: isDevelopment ? 'development' : 'production'
       }),
-      // simulateExtensionEvent removed for security: it could be exploited on staging builds
       showWelcome: () => {
         console.log(`[0xio SDK] Development mode - SDK v${SDK_VERSION}`);
         console.log('[0xio SDK] Debug utilities available at window.__ZEROXIO_SDK_UTILS__');
       }
     };
 
-    // Legacy alias for backward compatibility
     (window as any).__OCTRA_SDK_UTILS__ = (window as any).__ZEROXIO_SDK_UTILS__;
-
-    // Only show welcome message if specifically requested or on localhost
-    // if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    //   (window as any).__ZEROXIO_SDK_UTILS__.showWelcome();
-    // }
   }
 }

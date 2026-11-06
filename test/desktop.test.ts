@@ -28,16 +28,14 @@ const DEVNET = { ...NETWORK, id: 'devnet', name: 'Octra Devnet', isTestnet: true
 type Reply = Record<string, unknown> | undefined;
 type Handler = (msg: any, sock: FakeSocket) => Reply | Promise<Reply>;
 
-/** An in-memory 0xio Desktop: accepts sockets, answers frames like the desktop server. */
 class MockDesktop {
   up = true;
-  /** Accepts the socket but never opens it (a prompt or a hung port). */
+  /** Never opens the socket, like an unanswered prompt or a hung port. */
   hang = false;
   sockets: FakeSocket[] = [];
   frames: any[] = [];
   connected = false;
   network = 'mainnet';
-  /** The site token the desktop keeps for the page; an approved connect replaces it. */
   token: string | null = null;
   issued = 0;
   onRequest: Handler = (msg) => defaultAnswer(msg, this);
@@ -141,12 +139,10 @@ class FakeSocket {
     const cb = this.onclose;
     setTimeout(() => cb?.({}), 0);
   }
-  /** Server to page. */
   push(obj: unknown): void {
     if (this.readyState !== 1) return;
     this.onmessage?.({ data: JSON.stringify(obj) });
   }
-  /** The desktop quits: the socket drops. */
   drop(): void {
     this.readyState = 3;
     this.onclose?.({});
@@ -316,7 +312,6 @@ describe('transport selection', () => {
   });
 });
 
-/** Runs `run` with the browser reporting this local network permission state. */
 async function withPermission(state: 'granted' | 'denied' | 'prompt' | 'throws', run: () => Promise<void>) {
   const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', {
@@ -407,7 +402,7 @@ describe('local network permission', () => {
       );
       await w.connect();
       expect(init).toHaveBeenCalledTimes(2);
-      expect(ext.mock.calls.map((c) => c[0])).toEqual(['register_dapp', 'connect']);
+      expect(ext.mock.calls.map((c) => c[0])).toEqual(['register_dapp', 'wallet_hello', 'connect']);
       expect(w.transport).toBe('extension');
       expect(FakeSocket.made).toBe(0);
       w.cleanup();
@@ -519,7 +514,7 @@ describe('requests', () => {
     await jest.advanceTimersByTimeAsync(5 * 60_000);
     expect(settled).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(DESKTOP_REVIEW_TIMEOUT_MS);
-    await expect(p).rejects.toMatchObject({ code: ErrorCode.NETWORK_ERROR });
+    await expect(p).rejects.toMatchObject({ code: ErrorCode.STATUS_UNKNOWN });
     w.cleanup();
   });
 });
@@ -846,5 +841,197 @@ describe('fixes on the extension path', () => {
     expect(w.isConnected()).toBe(false);
     comm.emit('disconnect', { origin: ORIGIN });
     expect(seen).toHaveLength(1);
+  });
+});
+
+const CAPS = ['request_id', 'request_status', 'request_events', 'idempotent', 'wait_confirmed', 'receipt', 'can_sign', 'kind'];
+
+function protocol2(d: MockDesktop, statuses = new Map<string, unknown>()): Map<string, unknown> {
+  const original = d.receive.bind(d);
+  d.receive = async (sock, msg) => {
+    if (msg.method === 'site_hello') {
+      d.frames.push(msg);
+      setTimeout(() => sock.push({ _id: msg._id, v: 1, wallet: '0xio-desktop', version: '0.6.2', network: d.network, protocol: 2, capabilities: CAPS }), 0);
+      return;
+    }
+    if (msg.method === 'site_status') {
+      d.frames.push(msg);
+      const result = statuses.get(msg.rid) ?? { requestId: msg.rid, status: 'unknown', seq: 0 };
+      setTimeout(() => sock.push({ _id: msg._id, result }), 0);
+      return;
+    }
+    return original(sock, msg);
+  };
+  return statuses;
+}
+
+describe('protocol 2 desktop', () => {
+  it('reads protocol and capabilities from site_hello and puts rid at the top of site_request', async () => {
+    protocol2(desktop);
+    const w = await desktopWallet();
+    expect(w.walletInfo).toEqual({ kind: 'desktop', version: '0.6.2', protocol: 2, capabilities: CAPS });
+    await w.connect();
+    const frame = desktop.requests().find((f) => f.request.method === 'connect');
+    expect(frame.rid).toMatch(/^[0-9a-f]{32}$/);
+    expect(frame.request).not.toHaveProperty('rid');
+    expect(desktop.requests().find((f) => f.request.method === 'register_dapp')).not.toHaveProperty('rid');
+    expect(desktop.frames.filter((f) => f.method === 'wallet_hello')).toHaveLength(0);
+    w.cleanup();
+  });
+
+  it('a protocol 1 desktop reads as protocol 1 with no capabilities', async () => {
+    const w = await desktopWallet();
+    expect(w.walletInfo).toEqual({ kind: 'desktop', protocol: 1, capabilities: [] });
+    w.cleanup();
+  });
+
+  it('on timeout keeps the review open (no site_cancel) and rejects STATUS_UNKNOWN with the id', async () => {
+    protocol2(desktop);
+    const w = await desktopWallet();
+    await w.connect();
+    desktop.onRequest = (msg) => (msg.request.method === 'signMessage' ? undefined : defaultAnswer(msg, desktop));
+    jest.useFakeTimers();
+    const p = w.signMessage('slow', { timeoutMs: 1_000 }).catch((e) => e);
+    await jest.advanceTimersByTimeAsync(1_100);
+    const err = await p;
+    expect(err).toMatchObject({ code: ErrorCode.STATUS_UNKNOWN, details: { requestId: expect.stringMatching(/^[0-9a-f]{32}$/) } });
+    expect(desktop.frames.filter((f) => f.method === 'site_cancel')).toHaveLength(0);
+    w.cleanup();
+  });
+
+  it('a protocol 1 desktop still gets site_cancel on timeout, and the call reads STATUS_UNKNOWN', async () => {
+    const w = await desktopWallet();
+    await w.connect();
+    desktop.onRequest = (msg) => (msg.request.method === 'signMessage' ? undefined : defaultAnswer(msg, desktop));
+    jest.useFakeTimers();
+    const p = w.signMessage('slow', { timeoutMs: 1_000 }).catch((e) => e);
+    await jest.advanceTimersByTimeAsync(1_100);
+    expect(await p).toMatchObject({ code: ErrorCode.STATUS_UNKNOWN });
+    expect(desktop.frames.filter((f) => f.method === 'site_cancel')).toHaveLength(1);
+    w.cleanup();
+  });
+
+  it('maps site_event kind request to requestUpdate, and each one restarts the wait', async () => {
+    protocol2(desktop);
+    const w = await desktopWallet();
+    await w.connect();
+    desktop.onRequest = (msg) => (msg.request.method === 'signMessage' ? undefined : defaultAnswer(msg, desktop));
+    const seen: any[] = [];
+    w.on('requestUpdate', (e) => seen.push(e.data));
+    jest.useFakeTimers();
+    const p = w.signMessage('slow', { timeoutMs: 1_000 });
+    const settled = jest.fn();
+    p.then(settled, settled);
+    await jest.advanceTimersByTimeAsync(10);
+    const rid = desktop.requests().find((f) => f.request.method === 'signMessage').rid;
+    await jest.advanceTimersByTimeAsync(790);
+    desktop.last().push({ event: 'site_event', v: 1, origin: ORIGIN, kind: 'request', data: { requestId: rid, status: 'review_open', seq: 2 } });
+    await jest.advanceTimersByTimeAsync(700);
+    expect(settled).not.toHaveBeenCalled();
+    expect(seen.map((s) => s.status)).toEqual(['pending', 'review_open']);
+    desktop.last().push({ event: 'site_event', v: 1, origin: 'https://other.example', kind: 'request', data: { requestId: rid, status: 'signing', seq: 3 } });
+    await jest.advanceTimersByTimeAsync(400);
+    expect(await p.catch((e) => e)).toMatchObject({ code: ErrorCode.STATUS_UNKNOWN, details: { requestId: rid, lastStatus: 'review_open' } });
+    w.cleanup();
+  });
+
+  it('asks site_status for requestStatus', async () => {
+    const statuses = protocol2(desktop);
+    const w = await desktopWallet();
+    const rid = '0123456789abcdef0123456789abcdef';
+    statuses.set(rid, { requestId: rid, status: 'submitted', seq: 4, hash: 'b'.repeat(64) });
+    expect(await w.requestStatus(rid)).toMatchObject({ requestId: rid, status: 'submitted', hash: 'b'.repeat(64) });
+    expect(desktop.frames.find((f) => f.method === 'site_status')).toMatchObject({ v: 1, rid });
+    w.cleanup();
+  });
+
+  it('on page close cancels an unanswered review but not an approved one', async () => {
+    protocol2(desktop);
+    const w = await desktopWallet();
+    await w.connect();
+    desktop.onRequest = (msg) => (msg.request.method === 'send_transaction' ? undefined : defaultAnswer(msg, desktop));
+    const p = w.sendTransaction({ to: ADDRESS, amount: '1' }).catch((e) => e);
+    await tick();
+    const frame = desktop.requests().find((f) => f.request.method === 'send_transaction');
+    desktop.last().push({ event: 'site_event', v: 1, origin: ORIGIN, kind: 'request', data: { requestId: frame.rid, status: 'signing', seq: 3 } });
+    pageListeners.pagehide.forEach((fn) => fn({}));
+    expect(await p).toMatchObject({ code: ErrorCode.NETWORK_ERROR, details: { requestId: frame.rid, status: 'unknown' } });
+    expect(desktop.frames.filter((f) => f.method === 'site_cancel')).toHaveLength(0);
+    w.cleanup();
+  });
+});
+
+function changingPermission(initial: 'prompt' | 'granted' | 'denied') {
+  const listeners = new Set<() => void>();
+  const status = {
+    state: initial as string,
+    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+  };
+  const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { permissions: { query: async () => status } },
+  });
+  return {
+    set(state: 'granted' | 'denied') {
+      status.state = state;
+      listeners.forEach((fn) => fn());
+    },
+    restore() {
+      if (nav) Object.defineProperty(globalThis, 'navigator', nav);
+      else delete (globalThis as any).navigator;
+    },
+  };
+}
+
+describe('connect-time desktop attempt', () => {
+  it('reports the prompt with connectProgress and ends at once when the visitor denies it', async () => {
+    const perm = changingPermission('prompt');
+    try {
+      noExtension();
+      desktop.hang = true;
+      const w = new ZeroXIOWallet({ appName: 'Test' });
+      await w.initialize();
+      const progress: any[] = [];
+      w.on('connectProgress', (e) => progress.push(e.data));
+      const started = Date.now();
+      const p = w.connect().catch((e) => e);
+      await tick(20);
+      expect(progress).toEqual([{ phase: 'local-network-prompt' }]);
+      perm.set('denied');
+      const err = await p;
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(err).toMatchObject({ code: ErrorCode.EXTENSION_NOT_FOUND, details: { desktop: 'blocked' } });
+      w.cleanup();
+    } finally {
+      perm.restore();
+    }
+  });
+
+  it('ends at once with not-running when the socket is refused', async () => {
+    const perm = changingPermission('prompt');
+    try {
+      noExtension();
+      desktop.up = false;
+      const w = new ZeroXIOWallet({ appName: 'Test' });
+      await w.initialize();
+      expect(await w.connect().catch((e) => e)).toMatchObject({ code: ErrorCode.EXTENSION_NOT_FOUND, details: { desktop: 'not-running' } });
+      w.cleanup();
+    } finally {
+      perm.restore();
+    }
+  });
+
+  it('initialize() says blocked when access is denied', async () => {
+    const perm = changingPermission('denied');
+    try {
+      noExtension();
+      const w = new ZeroXIOWallet({ appName: 'Test' });
+      await expect(w.initialize()).rejects.toMatchObject({ details: { desktop: 'blocked' } });
+      w.cleanup();
+    } finally {
+      perm.restore();
+    }
   });
 });

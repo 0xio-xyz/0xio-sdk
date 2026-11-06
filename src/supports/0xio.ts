@@ -1,26 +1,8 @@
-/**
- * 0xio Wallet transport adapter.
- *
- * Implements the postMessage protocol used by the 0xio browser extension (>= v2.4.0).
- *
- * Outbound wire format:
- *   window.postMessage({ source: '0xio-sdk-request', request: { id, method, params, timestamp } }, origin)
- *
- * Inbound wire format:
- *   window.postMessage({ source: '0xio-sdk-bridge', response: { id, success, data, error }, sessionNonce })
- *   window.postMessage({ source: '0xio-sdk-bridge', event: { type, data } })
- *
- * Session nonce validation: injected.ts broadcasts the nonce received from the
- * isolated content script. Once set, any '0xio-sdk-bridge' response with a missing or
- * mismatched nonce is rejected, preventing response injection by malicious page scripts.
- */
 
 import type { WalletTransportAdapter, AdapterRequest, AdapterIncomingMessage } from '../adapter';
+import { ANNOUNCE_EVENT, parseAnnounce, requestWalletAnnounce, watchWalletSignals } from '../lifecycle';
 
-/**
- * Creates a 0xio adapter. The factory accepts optional extra trusted parent origins
- * so the communicator can forward its own trustedOrigins setting to origin validation.
- */
+/** `extraTrustedOrigins` are allowed as parent iframe bridges besides the built-in ones. */
 export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): WalletTransportAdapter {
   return {
     name: '0xio',
@@ -32,8 +14,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
       return !!(
         win.wallet0xio ||
         win.ZeroXIOWallet ||
-        // 0xio extension also exposes window.octra with isOctra=true; match it here
-        // so this adapter (postMessage protocol) takes priority over OctraProviderAdapter
+        // The extension also exposes window.octra; matching it here keeps this adapter first
         (win.octra?.isOctra && (win.wallet0xio || win.ZeroXIOWallet)) ||
         win.chrome?.runtime?.id ||
         document.querySelector('meta[name="0xio-dapp"]') ||
@@ -55,7 +36,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
           parentOrigin
         );
       } catch {
-        // Do not fall back to '*': silent failure is safer
+        // Never fall back to '*', which would leak the request to any frame
       }
     },
 
@@ -77,7 +58,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
 
       let _sessionNonce: string | null = null;
 
-      // receive the session nonce from injected.ts (MAIN world content script)
+      // A page script cannot forge the session nonce, so responses without it are dropped
       const nonceListener = (e: MessageEvent) => {
         if (e.origin !== allowedOrigin) return;
         if (e.data?.source === '0xio-sdk-nonce-init' && typeof e.data.nonce === 'string') {
@@ -101,11 +82,7 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
         if (e.source !== window && e.source !== window.parent) return;
         if (!e.data || e.data.source !== '0xio-sdk-bridge') return;
 
-        // session nonce validation.
-        // Preferred path: nonce set via 0xio-sdk-nonce-init from injected.ts.
-        // Fallback path: if the init broadcast was missed (race between document_start
-        // content script and page script load), capture nonce from the first same-origin
-        // response so that all subsequent responses are validated.
+        // The init broadcast can race the page script; then the first same-origin response sets it
         if (!_sessionNonce && isFromSameOrigin && typeof e.data.sessionNonce === 'string') {
           _sessionNonce = e.data.sessionNonce;
         }
@@ -118,6 +95,8 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
             success: r.success,
             data: r.data,
             error: r.error,
+            ...(typeof r.rid === 'string' ? { rid: r.rid } : {}),
+            ...(typeof r.status === 'string' ? { status: r.status } : {}),
           });
         } else if (e.data.event) {
           handler({
@@ -136,15 +115,21 @@ export function createZeroXIOAdapter(extraTrustedOrigins: string[] = []): Wallet
 
     listenForReady(onReady: () => void): () => void {
       const handler = () => onReady();
+      const onAnnounce = (e: Event) => {
+        if (parseAnnounce((e as CustomEvent).detail)) onReady();
+      };
+      watchWalletSignals();
       window.addEventListener('0xioWalletReady', handler);
       window.addEventListener('wallet0xioReady', handler);
+      window.addEventListener(ANNOUNCE_EVENT, onAnnounce);
+      requestWalletAnnounce();
       return () => {
         window.removeEventListener('0xioWalletReady', handler);
         window.removeEventListener('wallet0xioReady', handler);
+        window.removeEventListener(ANNOUNCE_EVENT, onAnnounce);
       };
     },
   };
 }
 
-/** Default 0xio adapter instance (no extra trusted origins). */
 export const ZeroXIOAdapter = createZeroXIOAdapter();

@@ -30,7 +30,6 @@ export const LEGACY_PERMISSION_MAP: Record<string, WalletPermission> = {
   stealth_claim: 'private_claims',
 };
 
-/** Translate any mix of old and new names into the wallet's scope names, without duplicates. */
 export function toWalletPermissions(perms: readonly string[] | undefined): WalletPermission[] {
   const out: WalletPermission[] = [];
   for (const p of perms ?? []) {
@@ -42,10 +41,7 @@ export function toWalletPermissions(perms: readonly string[] | undefined): Walle
   return out;
 }
 
-/**
- * The granted wallet scopes plus every requested old name they satisfy, so a dapp that checks
- * for the name it asked for (for example 'read_balance') keeps seeing it.
- */
+/** Adds back every requested old name the granted scopes satisfy, so existing checks keep passing. */
 export function withLegacyAliases(
   granted: readonly string[] | undefined,
   requested: readonly string[] | undefined

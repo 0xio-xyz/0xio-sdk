@@ -1,6 +1,3 @@
-/**
- * Network configuration for 0xio SDK
- */
 
 import { NetworkInfo, ErrorCode, ZeroXIOWalletError } from '../types';
 
@@ -40,20 +37,13 @@ const _NETWORKS: Record<string, NetworkInfo> = {
   }
 };
 
-/**
- * Immutable public copy of the built-in network table.
- * Modifications to returned objects do not affect SDK-internal state.
- */
 export const NETWORKS: Readonly<Record<string, Readonly<NetworkInfo>>> = Object.freeze(
   Object.fromEntries(Object.entries(_NETWORKS).map(([k, v]) => [k, Object.freeze({ ...v })]))
 );
 
 export const DEFAULT_NETWORK_ID = 'mainnet';
 
-/**
- * Get network configuration by ID.
- * Returns a frozen copy, so callers cannot mutate SDK-internal state.
- */
+/** A frozen copy; callers cannot change the SDK's table. */
 export function getNetworkConfig(networkId: string = DEFAULT_NETWORK_ID): NetworkInfo {
   if (!Object.prototype.hasOwnProperty.call(_NETWORKS, networkId)) {
     throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, `Unknown network ID: ${networkId}`);
@@ -61,25 +51,17 @@ export function getNetworkConfig(networkId: string = DEFAULT_NETWORK_ID): Networ
   return Object.freeze({ ..._NETWORKS[networkId] });
 }
 
-/**
- * Get all available networks.
- * Returns frozen copies, so callers cannot mutate SDK-internal state.
- */
+/** Frozen copies; callers cannot change the SDK's table. */
 export function getAllNetworks(): NetworkInfo[] {
   return Object.values(_NETWORKS).map(n => Object.freeze({ ...n }));
 }
 
-/**
- * Check if network ID is valid (own property check, prevents prototype pollution).
- */
+/** Own property check, so `__proto__` and friends are not network ids. */
 export function isValidNetworkId(networkId: string): boolean {
   return typeof networkId === 'string' && Object.prototype.hasOwnProperty.call(_NETWORKS, networkId);
 }
 
-/**
- * Validate a NetworkInfo shape from an untrusted source (bridge response).
- * Returns a frozen copy if valid, null otherwise.
- */
+/** A frozen copy of untrusted bridge data, or null when it is not a NetworkInfo. */
 export function validateNetworkInfo(raw: any): NetworkInfo | null {
   if (!raw || typeof raw !== 'object') return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;
@@ -89,7 +71,7 @@ export function validateNetworkInfo(raw: any): NetworkInfo | null {
     const isHttps = raw.rpcUrl.startsWith('https://');
     const isLocal = raw.rpcUrl.startsWith('http://localhost') || raw.rpcUrl.startsWith('http://127.0.0.1');
     const isTestnet = raw.isTestnet === true;
-    // Reject plain-http RPC URLs from untrusted sources unless testnet-flagged or local
+    // Plain http only for a testnet or a local node
     if (!isHttps && !isLocal && !isTestnet) return null;
   }
   if (typeof raw.supportsPrivacy !== 'boolean') return null;

@@ -23,7 +23,8 @@
   "scripts": {
     "build": "rollup -c",
     "dev": "rollup -c -w",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p conformance/tsconfig.json && tsc -p examples/tsconfig.json",
+    "test:conformance": "jest conformance",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
     "prepare": "npm run build",
@@ -79,8 +80,12 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/test/setup-version.cjs"
+    ],
     "testMatch": [
-      "<rootDir>/test/**/*.test.ts"
+      "<rootDir>/test/**/*.test.ts",
+      "<rootDir>/conformance/**/*.test.ts"
     ],
     "transform": {
       "\\.ts$": "<rootDir>/test/ts-transform.cjs"

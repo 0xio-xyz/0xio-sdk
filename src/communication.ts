@@ -2,8 +2,21 @@ import {
   ExtensionRequest,
   ExtensionResponse,
   ErrorCode,
+  WalletInfo,
   ZeroXIOWalletError
 } from './types';
+import {
+  DEFAULT_DETECT_TIMEOUT_MS,
+  HELLO_TIMEOUT_MS,
+  RequestMeta,
+  SUPPORTED_PROTOCOLS,
+  guessWalletKind,
+  isRequestId,
+  isRequestStatusValue,
+  parseWalletHello,
+  walletSignals,
+} from './lifecycle';
+import { SDK_VERSION } from './version';
 import type { WalletTransportAdapter } from './adapter';
 import { createZeroXIOAdapter } from './supports/0xio';
 import { retry, withTimeout, createLogger } from './utils';
@@ -15,6 +28,8 @@ export class ExtensionCommunicator extends EventEmitter {
     reject: (error: Error) => void;
     timeout: ReturnType<typeof setTimeout>;
     retryCount: number;
+    rid?: string;
+    restart?: () => void;
   }>();
 
   private isInitialized = false;
@@ -24,37 +39,37 @@ export class ExtensionCommunicator extends EventEmitter {
   private trustedOrigins: string[] = [];
   private _parentOrigin: string | null = null;
 
-  /** Pluggable transport, defaults to the 0xio postMessage protocol. */
   private adapter: WalletTransportAdapter;
-  /** Teardown fn returned by adapter.listen() */
   private _adapterTeardown: (() => void) | null = null;
-  /** Teardown fn returned by adapter.listenForReady() */
   private _adapterReadyTeardown: (() => void) | null = null;
 
-  /**
-   * Set when a trusted walletReady has been received from window.parent.
-   * The polling fallback must not clear this flag.
-   */
+  /** The polling fallback must not clear this. */
   private _parentTrusted = false;
 
-  /** walletReady postMessage listener stored for cleanup */
   private _walletReadyMessageListener: ((e: MessageEvent) => void) | null = null;
 
-  /**
-   * In-flight interactive request lock.
-   * Methods that open approval popups are serialized: only one at a time.
-   */
+  /** One review at a time; the same request id re-attaches. */
   private _interactiveInFlight = false;
+  private _interactiveRid: string | null = null;
+
+  private _walletInfo: WalletInfo | null = null;
+  private readonly detectTimeoutMs: number;
 
   private readonly MAX_CONCURRENT_REQUESTS = 50;
   private readonly RATE_LIMIT_WINDOW = 1000;
   private readonly MAX_REQUESTS_PER_WINDOW = 20;
   private requestTimestamps: number[] = [];
 
-  constructor(debug = false, trustedOrigins: string[] = [], adapter?: WalletTransportAdapter) {
+  constructor(
+    debug = false,
+    trustedOrigins: string[] = [],
+    adapter?: WalletTransportAdapter,
+    options: { detectTimeoutMs?: number } = {}
+  ) {
     super(debug);
     this.logger = createLogger('ExtensionCommunicator', debug);
     this.trustedOrigins = trustedOrigins;
+    this.detectTimeoutMs = Math.min(Math.max(options.detectTimeoutMs ?? DEFAULT_DETECT_TIMEOUT_MS, 0), 10000);
     this.adapter = adapter ?? createZeroXIOAdapter(trustedOrigins);
     this.setupMessageListener();
     this.startExtensionDetection();
@@ -70,7 +85,7 @@ export class ExtensionCommunicator extends EventEmitter {
     }
 
     try {
-      const available = await this.waitForExtensionAvailability(10000);
+      const available = await this.waitForExtensionAvailability(this.initialWaitMs());
 
       if (available) {
         await withTimeout(
@@ -96,54 +111,109 @@ export class ExtensionCommunicator extends EventEmitter {
     return this.isExtensionAvailableState && this.hasExtensionContext();
   }
 
-  // Methods that trigger user-facing popups: never retry these.
-  // Retrying sends a second request while the first popup is still open,
-  // causing double popups where the second tx fails (stale nonce/state).
+  /** Inside a frame or the 0xio app's WebView the wallet may signal late, so 10 s stays there. */
+  private initialWaitMs(): number {
+    if (typeof window === 'undefined') return this.detectTimeoutMs;
+    const win = window as any;
+    const inFrame = win.parent !== undefined && win.parent !== window;
+    return inFrame || win.ReactNativeWebView ? 10000 : this.detectTimeoutMs;
+  }
+
+  /** Sent once, never retried; any error reads as protocol 1. */
+  async walletHello(): Promise<WalletInfo> {
+    const signals = walletSignals();
+    const fallbackKind = signals.announce?.kind ?? guessWalletKind('extension');
+    let info: WalletInfo;
+    try {
+      const raw = await this.sendRequest(
+        'wallet_hello',
+        { sdk: SDK_VERSION, protocols: [...SUPPORTED_PROTOCOLS] },
+        HELLO_TIMEOUT_MS
+      );
+      info = parseWalletHello(raw, fallbackKind);
+    } catch {
+      info = parseWalletHello({}, fallbackKind);
+    }
+    if (info.protocol === 1 && !info.version) {
+      const version = signals.announce?.version ?? signals.readyVersion;
+      if (version) info = Object.freeze({ ...info, version });
+    }
+    this._walletInfo = info;
+    this.logger.log('Wallet protocol:', info.protocol, info.kind);
+    return info;
+  }
+
+  get walletInfo(): WalletInfo | null {
+    return this._walletInfo;
+  }
+
+  async queryRequestStatus(rid: string): Promise<unknown> {
+    if (this._walletInfo?.protocol !== 2) {
+      throw new ZeroXIOWalletError(ErrorCode.UNSUPPORTED_METHOD, 'This wallet keeps no request status');
+    }
+    return this.sendRequest('request_status', { rid }, 10000);
+  }
+
+  async cancelRequestOnWallet(rid: string): Promise<unknown> {
+    if (this._walletInfo?.protocol !== 2) {
+      throw new ZeroXIOWalletError(
+        ErrorCode.UNSUPPORTED_METHOD,
+        'This wallet cannot cancel a request from the site; close the review in the wallet'
+      );
+    }
+    return this.sendRequest('cancel_request', { rid }, 10000);
+  }
+
+  touchRequest(rid: string): void {
+    for (const pending of this.pendingRequests.values()) {
+      if (pending.rid === rid) pending.restart?.();
+    }
+  }
+
+  // A retry would open a second review while the first is still open.
   private static readonly NO_RETRY_METHODS = new Set([
     'connect', 'send_transaction', 'call_contract', 'deploy_contract', 'signMessage',
     'sign_transaction', 'broadcast_only',
     'send_private_transfer', 'claim_private_transfer',
     'encrypt_balance', 'decrypt_balance',
-    // Broadcasts a sequence of contract txs, so it must never be retried (it would double-send).
     'send_contract_transaction_sequence',
-    // Shows an approval popup + broadcasts a registration tx (offscreen cold-init can exceed
-    // 30s): interactive, long timeout, no retry.
+    // Offscreen cold init can exceed 30 s
     'register_private_view_key',
-    // Asks the user to confirm; a retry after a slow approval opened a second review.
     'switch_network',
   ]);
 
-  // Long-running compute primitives (RFP): proof generation / decrypt take 10-120s, so
-  // they need the long (180s) timeout and must not be retried (a retry wastes ~a minute of
-  // compute). They do not show approval popups, so, unlike NO_RETRY_METHODS, they are not
-  // subject to the one-at-a-time interactive lock (a dapp may run several concurrently).
+  // Proofs and decrypts take 10 to 120 s; no review, so several may run at once.
   private static readonly LONG_COMPUTE_METHODS = new Set([
     'make_zero_proof', 'make_range_proof', 'decrypt_value',
     'get_private_balance', 'encrypt_value',
   ]);
 
-  // A private transfer runs proof generation after the approval (minutes on a slow machine),
-  // so its wait is longer than the popup window alone.
+  // An old wallet answers wallet_hello with an error; status queries repeat on the caller's clock.
+  private static readonly SINGLE_SHOT_METHODS = new Set(['wallet_hello', 'request_status', 'cancel_request']);
+
+  // Proofs run after the approval, minutes on a slow machine.
   private static readonly PROOF_METHODS = new Set(['send_private_transfer']);
 
-  // The interactive lock applies only to methods that open a wallet popup / broadcast.
   private static readonly INTERACTIVE_METHODS = ExtensionCommunicator.NO_RETRY_METHODS;
 
   async sendRequest<T = any>(
     method: string,
     params: any = {},
-    timeout = 30000
+    timeout = 30000,
+    meta?: RequestMeta
   ): Promise<T> {
-    // No-retry + long timeout for both popup/broadcast methods and long compute primitives.
     const longOrNoRetry =
       ExtensionCommunicator.NO_RETRY_METHODS.has(method) ||
       ExtensionCommunicator.LONG_COMPUTE_METHODS.has(method);
-    const maxRetries = longOrNoRetry ? 0 : 1;
+    const maxRetries = longOrNoRetry || ExtensionCommunicator.SINGLE_SHOT_METHODS.has(method) ? 0 : 1;
     const effectiveTimeout = ExtensionCommunicator.PROOF_METHODS.has(method)
       ? Math.max(timeout, 600000)
       : longOrNoRetry
         ? Math.max(timeout, 180000)
         : timeout;
+    if (meta) {
+      return this.sendRequestWithRetry(method, params, 0, meta.timeoutMs ?? effectiveTimeout, meta);
+    }
     return this.sendRequestWithRetry(method, params, maxRetries, effectiveTimeout);
   }
 
@@ -151,8 +221,10 @@ export class ExtensionCommunicator extends EventEmitter {
     method: string,
     params: any = {},
     maxRetries = 3,
-    timeout = 30000
+    timeout = 30000,
+    meta?: RequestMeta
   ): Promise<T> {
+    const rid = meta && isRequestId(meta.rid) ? meta.rid : undefined;
     if (!this.hasExtensionContext()) {
       throw new ZeroXIOWalletError(
         ErrorCode.EXTENSION_NOT_FOUND,
@@ -175,14 +247,18 @@ export class ExtensionCommunicator extends EventEmitter {
 
     // Enforce one-at-a-time for interactive popup methods
     const isInteractive = ExtensionCommunicator.INTERACTIVE_METHODS.has(method);
-    if (isInteractive) {
+    const reattach = isInteractive && this._interactiveInFlight && !!rid && rid === this._interactiveRid;
+    const ownsLock = isInteractive && !reattach;
+    if (ownsLock) {
       if (this._interactiveInFlight) {
         throw new ZeroXIOWalletError(
           ErrorCode.RATE_LIMIT_EXCEEDED,
-          'Another approval popup is already open. Please wait for it to complete.'
+          'Another approval popup is already open. Please wait for it to complete.',
+          this._interactiveRid ? { reason: 'review_pending', requestId: this._interactiveRid } : undefined
         );
       }
       this._interactiveInFlight = true;
+      this._interactiveRid = rid ?? null;
     }
 
     this.checkRateLimit();
@@ -194,32 +270,47 @@ export class ExtensionCommunicator extends EventEmitter {
           id: requestId,
           method,
           params,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          v: 2,
+          ...(rid ? { rid } : {})
         };
 
         this.logger.log(`Sending request (${method}):`, { id: requestId });
 
         return new Promise<T>((resolve, reject) => {
-          const timeoutHandle = setTimeout(() => {
+          // A lifecycle request keeps its review open; only the SDK stops waiting.
+          const onTimeout = () => {
             const pending = this.pendingRequests.get(requestId);
-            if (pending) {
-              this.pendingRequests.delete(requestId);
-              reject(new ZeroXIOWalletError(
+            if (!pending) return;
+            this.pendingRequests.delete(requestId);
+            reject(rid
+              ? new ZeroXIOWalletError(
+                ErrorCode.STATUS_UNKNOWN,
+                `No answer from the wallet after ${timeout}ms; the request may still finish`,
+                { method, requestId: rid }
+              )
+              : new ZeroXIOWalletError(
                 ErrorCode.NETWORK_ERROR,
                 `Request timeout after ${timeout}ms`,
                 { method, requestId, retryCount: pending.retryCount }
               ));
-            }
-          }, timeout);
+          };
+          const timeoutHandle = setTimeout(onTimeout, timeout);
 
-          this.pendingRequests.set(requestId, {
+          const entry = {
             resolve,
             reject,
             timeout: timeoutHandle,
-            retryCount: 0
-          });
+            retryCount: 0,
+            rid,
+            restart: () => {
+              clearTimeout(entry.timeout);
+              entry.timeout = setTimeout(onTimeout, timeout);
+            }
+          };
+          this.pendingRequests.set(requestId, entry);
 
-          // Wrap postMessage so a DataCloneError cleans up the pending entry
+          // A DataCloneError must not leave the pending entry behind
           try {
             this.postMessageToExtension(request);
           } catch (cloneErr) {
@@ -234,8 +325,9 @@ export class ExtensionCommunicator extends EventEmitter {
         });
       }, maxRetries, 1000);
     } finally {
-      if (isInteractive) {
+      if (ownsLock) {
         this._interactiveInFlight = false;
+        this._interactiveRid = null;
       }
     }
   }
@@ -246,7 +338,6 @@ export class ExtensionCommunicator extends EventEmitter {
     this._adapterTeardown = this.adapter.listen(
       (msg) => {
         if (msg.requestId !== undefined) {
-          // response: map AdapterIncomingMessage to the ExtensionResponse shape
           if (this.pendingRequests.has(msg.requestId)) {
             this.handleExtensionResponse({
               id: msg.requestId,
@@ -254,7 +345,7 @@ export class ExtensionCommunicator extends EventEmitter {
               data: msg.data,
               error: msg.error as any,
               timestamp: Date.now(),
-            });
+            }, msg.status);
           }
         } else if (msg.eventType) {
           this.handleExtensionEvent({ type: msg.eventType, data: msg.eventData });
@@ -266,11 +357,10 @@ export class ExtensionCommunicator extends EventEmitter {
     this.logger.log(`Message listener setup complete (adapter: ${this.adapter.name})`);
   }
 
-  // only forward known event types
   private static readonly VALID_EVENT_TYPES = new Set<string>([
     'connect', 'disconnect', 'accountChanged', 'balanceChanged',
     'networkChanged', 'transactionConfirmed', 'transactionFailed', 'permissionsChanged', 'message',
-    'error', 'extensionLocked', 'extensionUnlocked'
+    'error', 'extensionLocked', 'extensionUnlocked', 'requestUpdate'
   ]);
 
   private handleExtensionEvent(event: any): void {
@@ -282,7 +372,7 @@ export class ExtensionCommunicator extends EventEmitter {
     this.emit(event.type, event.data);
   }
 
-  private handleExtensionResponse(response: ExtensionResponse): void {
+  private handleExtensionResponse(response: ExtensionResponse, topStatus?: unknown): void {
     this.logger.log(`Received response:`, { id: response.id, success: response.success });
 
     const pending = this.pendingRequests.get(response.id);
@@ -294,23 +384,36 @@ export class ExtensionCommunicator extends EventEmitter {
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(response.id);
 
-    // Require strict boolean true: a "false" string or other truthy values are failures
+    // Strictly true: the string "false" is truthy
     if (response.success === true) {
       pending.resolve(response.data);
     } else {
       const error = response.error;
       if (error) {
-        // Handle both object {code, message} and legacy plain-string error formats
         const isObj = error !== null && typeof error === 'object';
-        const code: ErrorCode = isObj && error.code ? error.code : ErrorCode.UNKNOWN_ERROR;
+        const rawCode: string = isObj && error.code ? error.code : ErrorCode.UNKNOWN_ERROR;
+        // RATE_LIMITED is the per second budget of a page, RATE_LIMIT_EXCEEDED the open request cap.
+        const code = (rawCode === 'RATE_LIMITED' ? ErrorCode.RATE_LIMIT_EXCEEDED : rawCode) as ErrorCode;
+        const reason = rawCode === 'RATE_LIMITED'
+          ? 'requests_per_second'
+          : rawCode === 'RATE_LIMIT_EXCEEDED' ? 'open_requests' : undefined;
         const message: string = isObj
           ? (error.message ?? 'Unknown error')
           : (typeof error === 'string' ? error : 'Unknown error');
+        const rawStatus = isObj
+          ? ((error as any).status ?? (error as any).details?.status ?? topStatus)
+          : topStatus;
         const enhancedError = new ZeroXIOWalletError(
           code,
           message,
-          // Redact bridge-supplied error details; only keep non-sensitive metadata
-          { requestId: response.id, retryCount: pending.retryCount, timestamp: Date.now() }
+          // Bridge supplied details are redacted
+          {
+            requestId: response.id,
+            retryCount: pending.retryCount,
+            timestamp: Date.now(),
+            ...(isRequestStatusValue(rawStatus) ? { status: rawStatus } : {}),
+            ...(reason ? { reason } : {})
+          }
         );
         pending.reject(enhancedError);
       } else {
@@ -325,8 +428,7 @@ export class ExtensionCommunicator extends EventEmitter {
 
   private postMessageToExtension(request: ExtensionRequest): void {
     this.adapter.postRequest(request);
-    // Parent bridge (iframe/desktop mode), only when a trusted origin is established.
-    // Sending with '*' would leak method + params to any intercepting frame.
+    // Only to a trusted parent origin: '*' would leak method and params to any frame
     if (window.parent !== window && this._parentOrigin) {
       if (this.adapter.postRequestToParent) {
         this.adapter.postRequestToParent(request, this._parentOrigin);
@@ -349,7 +451,6 @@ export class ExtensionCommunicator extends EventEmitter {
       );
     }
 
-    // Trim expired timestamps and cap the array size to prevent unbounded growth in idle tabs
     this.requestTimestamps = this.requestTimestamps.filter(
       t => now - t < this.RATE_LIMIT_WINDOW
     );
@@ -377,8 +478,7 @@ export class ExtensionCommunicator extends EventEmitter {
       const hex = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
       return `0xio-sdk-${hex}`;
     }
-    // Crypto API unavailable: throw rather than produce a guessable ID that
-    // could allow response spoofing via a known requestId.
+    // A guessable id would let a page script spoof responses
     throw new ZeroXIOWalletError(
       ErrorCode.UNKNOWN_ERROR,
       'Cryptographic random number generation is not available in this environment'
@@ -388,7 +488,6 @@ export class ExtensionCommunicator extends EventEmitter {
   private startExtensionDetection(): void {
     if (typeof window === 'undefined') return;
 
-    // Adapter-provided wallet-ready events (e.g. '0xioWalletReady', 'exampleWalletReady')
     if (this.adapter.listenForReady) {
       this._adapterReadyTeardown = this.adapter.listenForReady(() => {
         this.logger.log(`Received wallet-ready event (adapter: ${this.adapter.name})`);
@@ -396,7 +495,6 @@ export class ExtensionCommunicator extends EventEmitter {
       });
     }
 
-    // walletReady via postMessage (desktop/mobile iframe bridge), store the ref for cleanup
     this._walletReadyMessageListener = (event: MessageEvent) => {
       if (event.data?.source !== '0xio-sdk-bridge' || event.data?.event?.type !== 'walletReady') {
         return;
@@ -405,12 +503,11 @@ export class ExtensionCommunicator extends EventEmitter {
       const isSameOrigin = event.origin === window.location.origin;
       const isTauri = event.origin === 'tauri://localhost' || event.origin === 'https://tauri.localhost';
       const hasExplicitList = this.trustedOrigins.length > 0;
-      // When trustedParentOrigins is explicitly set, implicit localhost trust is disabled
+      // An explicit trustedParentOrigins list turns off implicit localhost trust
       const isLocalhostAllowed = !hasExplicitList &&
         (event.origin.startsWith('http://localhost:') || event.origin.startsWith('http://127.0.0.1:'));
       const isTrustedOrigin = this.trustedOrigins.includes(event.origin) || isTauri || isLocalhostAllowed;
 
-      // In iframe mode, only trust the actual parent window
       const inIframe = window.parent !== window;
       if (inIframe && event.source !== window.parent) {
         this.logger.warn(`Ignored walletReady from non-parent source in iframe mode`);
@@ -420,7 +517,7 @@ export class ExtensionCommunicator extends EventEmitter {
       if (isSameOrigin || isTrustedOrigin) {
         this.logger.log('Received walletReady via postMessage from trusted origin');
         this.isExtensionAvailableState = true;
-        this._parentTrusted = true; // Mark parent-bridge readiness separately
+        this._parentTrusted = true;
 
         if (event.data.parentOrigin) {
           this._parentOrigin = event.data.parentOrigin;
@@ -446,9 +543,7 @@ export class ExtensionCommunicator extends EventEmitter {
   }
 
   private checkExtensionAvailability(): void {
-    // If parent-bridge readiness was established via a trusted walletReady handshake,
-    // preserve that state: the polling fallback (detectExtensionSignals) does not
-    // consider the iframe parent signal and would incorrectly flip state back
+    // Polling cannot see the parent bridge and would flip a trusted handshake back
     if (this._parentTrusted) {
       return;
     }
@@ -476,9 +571,11 @@ export class ExtensionCommunicator extends EventEmitter {
       let resolved = false;
       const startTime = Date.now();
       let adapterReadyTeardown: (() => void) | null = null;
+      // A protocol 2 wallet may announce synchronously inside listenForReady, before the poll starts.
+      let checkInterval: ReturnType<typeof setInterval> | undefined;
 
       const cleanup = () => {
-        clearInterval(checkInterval);
+        if (checkInterval !== undefined) clearInterval(checkInterval);
         adapterReadyTeardown?.();
       };
 
@@ -490,12 +587,16 @@ export class ExtensionCommunicator extends EventEmitter {
         resolve(true);
       };
 
-      // Use adapter's listenForReady for fast resolution; polling is the fallback
       if (this.adapter.listenForReady) {
-        adapterReadyTeardown = this.adapter.listenForReady(onReady);
+        const teardown = this.adapter.listenForReady(onReady);
+        if (resolved) {
+          teardown();
+          return;
+        }
+        adapterReadyTeardown = teardown;
       }
 
-      const checkInterval = setInterval(() => {
+      checkInterval = setInterval(() => {
         if (resolved) return;
 
         if (this.isExtensionAvailableState) {
@@ -538,11 +639,7 @@ export class ExtensionCommunicator extends EventEmitter {
     };
   }
 
-  /**
-   * Clean up SDK resources.
-   * After cleanup() the instance is terminal: do not call initialize() again.
-   * Construct a new instance instead.
-   */
+  /** Terminal: construct a new instance instead of calling initialize() again. */
   cleanup(): void {
     if (this.extensionDetectionInterval) {
       clearInterval(this.extensionDetectionInterval);
@@ -559,14 +656,13 @@ export class ExtensionCommunicator extends EventEmitter {
     this._parentTrusted = false;
     this._parentOrigin = null;
     this._interactiveInFlight = false;
+    this._interactiveRid = null;
 
-    // Tear down adapter listeners (response/event + wallet-ready)
     this._adapterTeardown?.();
     this._adapterTeardown = null;
     this._adapterReadyTeardown?.();
     this._adapterReadyTeardown = null;
 
-    // Remove walletReady postMessage listener (parent iframe bridge)
     if (typeof window !== 'undefined' && this._walletReadyMessageListener) {
       window.removeEventListener('message', this._walletReadyMessageListener);
       this._walletReadyMessageListener = null;

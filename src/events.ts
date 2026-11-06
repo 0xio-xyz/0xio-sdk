@@ -26,7 +26,7 @@ export class EventEmitter {
 
   once<T = any>(eventType: WalletEventType, listener: EventListener<T>): void {
     const onceListener: EventListener<T> = (event) => {
-      // Remove BEFORE calling so a throwing listener doesn't stay registered
+      // Removed first so a throwing listener does not stay registered
       this.off(eventType, onceListener);
       listener(event);
     };
@@ -43,12 +43,11 @@ export class EventEmitter {
 
     const eventListeners = this.listeners.get(eventType);
     if (eventListeners && eventListeners.size > 0) {
-      // snapshot to avoid issues if listeners modify the set during iteration
       for (const listener of Array.from(eventListeners)) {
         try {
           listener(event);
         } catch {
-          // listener errors are swallowed to keep the event loop running
+          // a throwing listener must not stop the others
         }
       }
     }

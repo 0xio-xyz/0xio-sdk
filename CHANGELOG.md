@@ -6,15 +6,63 @@ All notable changes to the 0xio Wallet SDK.
 
 ### Security
 
-- 0xio Desktop without the extension: an approved connect returns a site token that the page keeps in its own `localStorage` (`0xio:desktop-site-token`) and shows in every `site_hello` as `site_token`, so a local program sending the site's Origin header no longer passes as the site.
+- Desktop site token proves the page; another local program cannot pose as the site
+- Repeated request id never opens a second review or signs twice
+- Timeouts reject with `STATUS_UNKNOWN`, not `NETWORK_ERROR`; review stays open, no resend
+- `requestUpdate` kept only for ids this page sent; wallet status data bounded
+- Conformance: a site that is not connected cannot tell the wallet is locked
+- Conformance: a site that is not connected gets no address, key or balance
+
+### Fixed
+
+- `initialize()` no longer throws when a wallet announces synchronously
+- Wallet `RATE_LIMITED` reaches sites as `RATE_LIMIT_EXCEEDED` with `details.reason`
+- Examples use the real API and the UMD global `ZeroXIOWalletSDK`
 
 ### Added
 
-- The token is taken out of the `connect()` result and never reaches the dapp; it is forgotten on `disconnect()`, when the desktop disconnects the site, and when the desktop answers `token_status: "invalid"`.
+- Desktop site token kept per site, never returned to the dapp
+- Wallet protocol 2: `v: 2`, request id `rid`, `wallet_hello` negotiation
+- `wallet.walletInfo` and `WalletKind`
+- `detectWallet()` and `wallet.detect()`
+- Presence announce: `0xio:requestWallet` and `0xio:announceWallet`
+- `newRequestId()`, `requestStatus()`, `waitForRequest()`
+- `cancelRequest()`, `pendingRequest()`
+- `requestId`, `timeoutMs`, `onStatus` on review calls; `wait` on writes
+- Writes resolve with `requestId`, `requestStatus`, and on confirm `epoch` and `receipt`
+- `wait: 'confirmed'` falls back to `rpc_call` reads on protocol 1 wallets
+- `requestUpdate` and `connectProgress` events
+- Error codes `STATUS_UNKNOWN`, `REQUEST_ID_REUSED`, `EXECUTION_FAILED`
+- Error codes `PVAC_KEY_MISMATCH`, `REGISTRATION_PENDING` for `registerPrivateViewKey`
+- `requestId` on review call errors
+- Wallet error status read from `error`, `error.details` or the top level
+- `openInAppUrl()`, `OPEN_IN_APP_URL`, `OPEN_IN_APP_SCHEME_URL`
+- `isMobileBrowser()`
+- Desktop protocol 2: `rid`, `site_hello` capabilities, `site_status`, request events
+- Provider adapter passes `rid` when the provider supports request ids
+- `SDKConfig.detectTimeoutMs`
+- `registerPrivateViewKey` completes at once when registered, else one reviewed key switch
+- `PrivateViewKeyRegistration` type
+- Types `RequestStatus`, `ReviewOptions`, `WriteOptions`, `WriteOutcome`, `WaitForRequestOptions`
+- Types `WalletInfo`, `WalletCapability`, `DetectResult`, `DetectOptions`, `DesktopPresence`
+- Types `ContractReceipt`, `ConnectProgressEvent`, `PendingRequestInfo`
+- Protocol helpers `canonicalJson`, `requestDigest`, `isRequestId`, `canTransition`, `parseRequestStatus`
+- Protocol tables `REQUEST_STATUS_TRANSITIONS`, `WALLET_CAPABILITIES`, `LIFECYCLE_LIMITS`, `WIRE_ERROR_CODES`
+- Conformance suite in `conformance/`, `npm run test:conformance`
 
 ### Changed
 
-- With a 0xio Desktop that asks for the token, a page without one (blocked storage, SDK 2.11.0) is not connected on a new link until a new `connect()` is approved.
+- Desktop pages without a site token need a new `connect()`
+- `initialize()` waits about 300 ms for a wallet, not 10 s
+- Protocol 2 desktops get no `site_cancel` on timeout or for approved requests
+- Connect-time desktop attempt ends at once when blocked or not running
+- SDK wait restarts on every protocol 2 status change
+- `registerPrivateViewKey` returns `PrivateViewKeyRegistration` instead of `unknown`
+- A second review while one is open rejects with `details.reason: 'review_pending'` and its id
+- `submitTransaction` of a wallet-signed transaction is not reviewed again
+- `src/supports/template.ts` is a working TypeScript template, not commented-out code
+- `SDK_VERSION` comes from package.json
+- `npm run typecheck` also checks `conformance/` and `examples/`
 
 ## [2.11.0] - 2026-10-21
 

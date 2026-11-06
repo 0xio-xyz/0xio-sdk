@@ -5,16 +5,11 @@ export function isValidAddress(address: string): boolean {
     return false;
   }
 
-  // Octra addresses use "oct" prefix followed by alphanumeric characters (47 chars total)
   const addressRegex = /^oct[A-Za-z0-9]{44}$/;
   return addressRegex.test(address);
 }
 
-/**
- * Validate transaction amount.
- * Accepts both number and string representations.
- * String amounts avoid JS number precision loss for very large values.
- */
+/** Strings avoid number precision loss for very large values. */
 export function isValidAmount(amount: string | number): boolean {
   if (typeof amount === 'string') {
     const n = parseFloat(amount);
@@ -27,17 +22,15 @@ export function isValidAmount(amount: string | number): boolean {
 }
 
 export function isValidMessage(message: string): boolean {
-  // Type check first: falsy non-strings (0, false, null) are not valid messages
   if (typeof message !== 'string') {
     return message === undefined || message === null ? true : false;
   }
 
-  // Empty string is valid (optional field)
   if (message.length === 0) {
     return true;
   }
 
-  // 100KB limit: contract call params can be large (serialized JSON)
+  // Contract call params can be large serialized JSON
   return message.length <= 100_000;
 }
 
@@ -71,11 +64,7 @@ function _base58Encode(buf: Uint8Array): string {
   return out;
 }
 
-/**
- * Derive the canonical Octra address from a base64-encoded Ed25519 public key.
- * Algorithm: SHA-256 of the pubkey bytes, base58-encoded, with "oct" prepended
- * Source of truth: ocho-push-server/src/index.ts#deriveAddressFromPubkey
- */
+/** "oct" + base58(sha256(public key bytes)). */
 export async function deriveOctraAddress(publicKeyBase64: string): Promise<string> {
   if (!publicKeyBase64 || typeof publicKeyBase64 !== 'string') {
     throw new Error('publicKeyBase64 must be a non-empty string');
@@ -142,15 +131,11 @@ export function toMicroOCT(amount: number): string {
     );
   }
 
-  // OCT uses 6 decimal places (1 OCT = 1,000,000 raw units per JSON-RPC spec)
   const microOCT = Math.round(amount * 1_000_000);
   return microOCT.toString();
 }
 
-/**
- * Exact OCT to raw micro-OCT conversion using string arithmetic (no float rounding).
- * Accepts up to 6 decimals; anything else is rejected.
- */
+/** String arithmetic, so no float rounding; at most 6 decimals. */
 export function octToMicro(amount: string | number): string {
   const text = typeof amount === 'number' ? amount.toFixed(6) : String(amount).trim();
   if (!/^\d+(\.\d{1,6})?$/.test(text)) {
@@ -216,7 +201,12 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.WATCH_ONLY]: 'This wallet is watch-only and cannot sign',
     [ErrorCode.UNSUPPORTED_METHOD]: 'The wallet does not support this method',
     [ErrorCode.NETWORK_CHANGED]: 'The network or wallet changed while the request waited; nothing was sent',
-    [ErrorCode.WALLET_CHANGED]: 'Open the wallet this site uses in 0xio Desktop, then try again'
+    [ErrorCode.WALLET_CHANGED]: 'Open the wallet this site uses in 0xio Desktop, then try again',
+    [ErrorCode.STATUS_UNKNOWN]: 'The wallet may still finish this request; check its status before trying again',
+    [ErrorCode.REQUEST_ID_REUSED]: 'This request id belongs to another request; make a new id',
+    [ErrorCode.EXECUTION_FAILED]: 'The chain rejected or dropped the transaction',
+    [ErrorCode.PVAC_KEY_MISMATCH]: 'Another private key is registered for this account; use the wallet that registered it',
+    [ErrorCode.REGISTRATION_PENDING]: 'The registration is waiting for confirmation; try again once it is confirmed'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';
@@ -238,25 +228,21 @@ export async function retry<T>(
 ): Promise<T> {
   let lastError: Error;
 
-  // maxRetries = number of retries AFTER the first attempt
-  // Total attempts = 1 (initial) + maxRetries
   for (let attempt = 0; attempt < 1 + maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error) {
       lastError = error as Error;
 
-      // Never retry user rejections, they are intentional
       const msg = lastError.message?.toLowerCase() || '';
       if (msg.includes('rejected') || msg.includes('denied') || msg.includes('cancelled') || msg.includes('user refused')) {
         throw lastError;
       }
 
       if (attempt >= maxRetries) {
-        break; // All retries exhausted
+        break;
       }
 
-      // Exponential backoff: 1s, 2s, 4s, etc.
       const delayMs = baseDelay * Math.pow(2, attempt);
       await delay(delayMs);
     }
@@ -265,9 +251,6 @@ export async function retry<T>(
   throw lastError!;
 }
 
-/**
- * Timeout wrapper for promises
- */
 export function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -304,7 +287,6 @@ export function checkBrowserSupport(): {
     return { supported: false, missingFeatures };
   }
 
-  // Check for required browser APIs
   if (typeof window.postMessage !== 'function') {
     missingFeatures.push('PostMessage API');
   }
@@ -354,7 +336,6 @@ export function createLogger(prefix: string, debug: boolean) {
     (window as any).__OCTRA_SDK_DEBUG__
   );
 
-  // Only enable logging in development mode AND when debug is explicitly enabled
   const shouldLog = debug && isDevelopment;
 
   const ts = () => {
@@ -374,7 +355,6 @@ export function createLogger(prefix: string, debug: boolean) {
       }
     },
     error: (...args: any[]) => {
-      // Always show errors in development, even without debug flag
       if (isDevelopment) {
         console.error(`[${ts()}][${prefix}]`, ...args);
       }

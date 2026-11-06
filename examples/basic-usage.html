@@ -83,7 +83,6 @@
         <h1>0xio SDK - Basic Usage Example</h1>
         <p>This example demonstrates the core functionality of the 0xio Wallet SDK.</p>
 
-        <!-- Connection Status -->
         <div class="status-card" id="status-card">
             <h3>Connection Status</h3>
             <p><strong>SDK Status:</strong> <span id="sdk-status">Initializing...</span></p>
@@ -93,7 +92,6 @@
             <p><strong>Network:</strong> <span id="network-info">Unknown</span></p>
         </div>
 
-        <!-- Connection Controls -->
         <div>
             <h3>Connection</h3>
             <button id="connect-btn" class="button" disabled>Connect Wallet</button>
@@ -101,7 +99,6 @@
             <button id="refresh-balance-btn" class="button" disabled>Refresh Balance</button>
         </div>
 
-        <!-- Transaction Section -->
         <div class="feature-section">
             <h3>Send Transaction</h3>
             <div class="form-group">
@@ -126,7 +123,6 @@
             <button id="send-tx-btn" class="button success" disabled>Send Transaction</button>
         </div>
 
-        <!-- Private Features Section -->
         <div class="feature-section">
             <h3>Private Features</h3>
             <div class="status-card" id="private-status">
@@ -149,7 +145,6 @@
             <button id="check-pending-btn" class="button" disabled>Check Pending Private Transfers</button>
         </div>
 
-        <!-- Advanced Features -->
         <div class="feature-section">
             <h3>Advanced</h3>
             <button id="tx-history-btn" class="button" disabled>Get Transaction History</button>
@@ -158,18 +153,14 @@
             <button id="clear-logs-btn" class="button">Clear Logs</button>
         </div>
 
-        <!-- Event Logs -->
         <div class="logs" id="logs">Loading SDK...</div>
     </div>
 
     <script type="module">
-        // Import the SDK (in production, this would be from a CDN or npm package)
-        // For now, we'll simulate the SDK
         
         let wallet = null;
         let connected = false;
 
-        // Logging function
         function log(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
             const logElement = document.getElementById('logs');
@@ -188,7 +179,6 @@
             const disconnectBtn = document.getElementById('disconnect-btn');
             const statusCard = document.getElementById('status-card');
             
-            // Update button states
             if (wallet && !connected) {
                 connectBtn.disabled = false;
                 connectBtn.textContent = 'Connect Wallet';
@@ -203,10 +193,8 @@
                 disconnectBtn.disabled = true;
             }
             
-            // Update status card
             statusCard.className = 'status-card ' + (connected ? 'success' : (wallet ? 'warning' : 'error'));
             
-            // Update transaction and feature buttons
             const featureButtons = [
                 'refresh-balance-btn', 'send-tx-btn', 'encrypt-balance-btn', 
                 'decrypt-balance-btn', 'check-pending-btn', 'tx-history-btn', 
@@ -222,11 +210,7 @@
             try {
                 log('Initializing 0xio Wallet SDK...');
 
-                // In a real implementation, this would be:
-                // import { createOctraWallet } from '@0xio/sdk';
-                // wallet = await createOctraWallet({ ... });
                 
-                // For this demo, we'll simulate the SDK
                 await simulateSDKInitialization();
                 
                 log('SDK initialized successfully', 'success');
@@ -241,16 +225,13 @@
         }
 
         async function simulateSDKInitialization() {
-            // Simulate SDK loading delay
             await new Promise(resolve => setTimeout(resolve, 1000));
             
-            // Create mock wallet object
             wallet = {
                 async connect() {
                     log('Connecting to wallet...');
                     await new Promise(resolve => setTimeout(resolve, 500));
                     
-                    // Simulate connection
                     connected = true;
                     const mockData = {
                         address: 'OCT1234567890ABCDEF1234567890ABCDEF',
@@ -303,7 +284,6 @@
             };
         }
 
-        // Event handlers
         document.getElementById('connect-btn').addEventListener('click', async () => {
             try {
                 await wallet.connect();
@@ -356,7 +336,6 @@
                 
                 const result = await wallet.sendTransaction(txData);
                 
-                // Clear form
                 document.getElementById('recipient').value = '';
                 document.getElementById('amount').value = '';
                 document.getElementById('message').value = '';
@@ -368,7 +347,6 @@
 
         document.getElementById('clear-logs-btn').addEventListener('click', clearLogs);
 
-        // Add more event handlers for other buttons...
         document.getElementById('test-api-btn').addEventListener('click', () => {
             log('Testing all API methods...', 'info');
             log('Connection test: PASS', 'success');
@@ -377,7 +355,6 @@
             log('All API tests completed successfully!', 'success');
         });
 
-        // Initialize on page load
         window.addEventListener('DOMContentLoaded', initializeSDK);
     </script>
 </body>

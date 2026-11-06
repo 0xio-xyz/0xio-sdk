@@ -1,22 +1,25 @@
 import typescript from '@rollup/plugin-typescript';
 import { dts } from 'rollup-plugin-dts';
 import replace from '@rollup/plugin-replace';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 const external = [];
 
 const plugins = [
   replace({
     'process.env.NODE_ENV': JSON.stringify('production'),
+    __SDK_VERSION__: JSON.stringify(pkg.version),
     preventAssignment: true
   }),
   typescript({
     tsconfig: './tsconfig.json',
-    declaration: false, // We'll generate declarations separately
+    declaration: false,
   })
 ];
 
 export default [
-  // ESM build
   {
     input: 'src/index.ts',
     output: {
@@ -28,7 +31,6 @@ export default [
     plugins
   },
   
-  // CommonJS build
   {
     input: 'src/index.ts',
     output: {
@@ -41,7 +43,6 @@ export default [
     plugins
   },
   
-  // UMD build for browsers
   {
     input: 'src/index.ts',
     output: {
@@ -55,7 +56,6 @@ export default [
     plugins
   },
   
-  // Type definitions
   {
     input: 'src/index.ts',
     output: {

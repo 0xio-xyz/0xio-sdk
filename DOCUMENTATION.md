@@ -9,6 +9,7 @@
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
 - [API Reference](#api-reference)
+- [Request Lifecycle](#request-lifecycle)
 - [Advanced Usage](#advanced-usage)
 - [Wallet Adapter System](#wallet-adapter-system)
 - [Framework Integration](#framework-integration)
@@ -62,12 +63,12 @@ The SDK auto-detects the environment. When `window.parent !== window`, it assume
 
 ### 0xio Desktop without the extension
 
-`initialize()` looks for the extension first, unchanged, and the extension always wins when present. When no extension answers in that window, and the site has not set `desktop: false`, the SDK reads the page's local network permission:
+`initialize()` looks for the extension first (about 300 ms since 2.12.0, `detectTimeoutMs`), and the extension always wins when present. When no extension answers in that window, and the site has not set `desktop: false`, the SDK reads the page's local network permission:
 
 | Permission | `initialize()` | `connect()` |
 |------------|----------------|-------------|
 | `granted`, or not reported by the browser | Opens the desktop (800 ms to connect); rejects with `EXTENSION_NOT_FOUND` when it does not answer | Uses the transport found |
-| `prompt` | Opens nothing; resolves `true` with `transport` `null` and `desktopAvailableOnConnect` `true` | Uses the extension if it has appeared, else opens the desktop and waits up to 20 seconds for the prompt; rejects with `EXTENSION_NOT_FOUND` when neither answers and tries again on the next call |
+| `prompt` | Opens nothing; resolves `true` with `transport` `null` and `desktopAvailableOnConnect` `true` | Uses the extension if it has appeared, else opens the desktop, emits `connectProgress`, and waits up to 20 seconds for an ignored prompt; a block or a desktop that is not running ends it at once (`details.desktop`: `blocked` or `not-running`); rejects with `EXTENSION_NOT_FOUND` when neither answers and tries again on the next call |
 | `denied` | Never opens the socket; rejects with `EXTENSION_NOT_FOUND` | |
 
 To open the desktop the SDK connects to `ws://127.0.0.1:19345` and sends `site_hello`. The desktop must answer `{ v: 1, wallet: "0xio-desktop" }`. The SDK then subscribes to the site's events and sends every SDK method as a `site_request`. It never sends a site or origin field: the desktop names the site from the browser's Origin header.
@@ -90,7 +91,7 @@ Error codes pass through as `ErrorCode` values; the desktop's `RATE_LIMITED` rea
 
 Results match the extension, with these differences: `getBalance()` reports `private: 0`, the `connect` payload carries `wallet: "0xio-desktop"`, and `getPrivateBalanceInfo()` returns `encrypted: null` with a message.
 
-Waits: reviews and proofs up to ten minutes, reads one minute; on a timeout the SDK sends `site_cancel`. One review waits at a time per page, as with the extension. When the socket drops, requests in flight fail with `NETWORK_ERROR`, the SDK emits `disconnect` with reason `network_error`, and the next call reopens the link, pausing 1 s, then 2 s, up to 30 s after each failed attempt.
+Waits: reviews and proofs up to ten minutes, reads one minute; a review call that runs out rejects with `STATUS_UNKNOWN`. On a timeout the SDK sends `site_cancel` to a protocol 1 desktop only; a protocol 2 desktop keeps the review (see Request Lifecycle). One review waits at a time per page, as with the extension. When the socket drops, requests in flight fail with `NETWORK_ERROR`, the SDK emits `disconnect` with reason `network_error`, and the next call reopens the link, pausing 1 s, then 2 s, up to 30 s after each failed attempt.
 
 ## Installation
 
@@ -1084,6 +1085,175 @@ const data = await withTimeout(
 
 ---
 
+## Request Lifecycle
+
+Since 2.12.0 (wallet protocol 2). Every call that opens a review or signs gets a request id. The site can store it, follow the request's status, find it again after a reload, and wait for the chain's verdict without its own RPC client. Nothing in the lifecycle ever signs or sends again: a repeated id joins the request or returns its stored outcome, and a timeout ends only the SDK's wait.
+
+### Detection before Connect
+
+#### `wallet.detect(): Promise<DetectResult>` and `detectWallet(options?): Promise<DetectResult>`
+
+No `initialize()` needed; about 300 ms on a normal page; never shows a browser prompt.
+
+```typescript
+interface DetectResult {
+  injected: { kind: WalletKind; version?: string; protocol: 1 | 2 } | null;
+  desktop: 'available' | 'unknown-until-connect' | 'not-running' | 'blocked' | 'not-allowed';
+  mobile: boolean;
+  openInAppUrl: string | null;   // set on a phone with nothing injected
+  next: 'connect' | 'install' | 'open-in-app';
+}
+```
+
+- `injected` comes from the `0xio:announceWallet` answer to the SDK's `0xio:requestWallet`, else from `window.wallet0xio` (protocol 1, version from `0xioWalletReady`), else `window.ReactNativeWebView` (an old 0xio app build).
+- `desktop` is `unknown-until-connect` while Chrome would ask for local network access: any probe would show that prompt to every visitor. `blocked` when the visitor denied it, `not-allowed` with `desktop: false`, outside a secure context, with another wallet's adapter, or on a phone. Otherwise a silent socket and `site_hello` say `available` or `not-running`.
+- `detectOptions.detectTimeoutMs` (default 300) bounds the wait for a wallet that injects late.
+
+`initialize()` uses the same window instead of 10 s (10 s stays inside a frame and in the 0xio app's WebView). On `connect()` with the desktop deferred, `connectProgress` (`{ phase: 'local-network-prompt' }`) fires while the prompt is up; a block ends the attempt at once with `EXTENSION_NOT_FOUND` and `details.desktop: 'blocked'`, a refused socket with `'not-running'`.
+
+#### `wallet.walletInfo: WalletInfo | null`
+
+```typescript
+type WalletKind = 'extension' | 'desktop' | 'app-ios' | 'app-android' | 'app-expo';
+interface WalletInfo { kind: WalletKind; version?: string; protocol: 1 | 2; capabilities: readonly string[] }
+```
+
+Set when the transport is chosen, from `wallet_hello` (extension channel) or the `site_hello` reply (0xio Desktop). A protocol 1 wallet reads as `{ protocol: 1, capabilities: [] }`, its kind guessed from the transport and the app's WebView. The SDK switches features on capabilities, never on versions. `wallet.transport` stays `'extension' | 'desktop' | null`.
+
+### Options on review calls
+
+```typescript
+interface ReviewOptions {
+  requestId?: string;                         // from newRequestId(); store it before the call
+  timeoutMs?: number;                         // the SDK's wait; never cancels the review
+  onStatus?: (status: RequestStatus) => void; // every status change of this request
+}
+interface WriteOptions extends ReviewOptions {
+  wait?: 'submitted' | 'confirmed';           // default 'submitted'
+}
+```
+
+| Method | Options | Resolves with |
+|---|---|---|
+| `connect(options?)` | `ConnectOptions & ReviewOptions` | `ConnectEvent` |
+| `switchNetwork(id, options?)` | `ReviewOptions` | `{ network, switched }` |
+| `signMessage(message, options?)`, `signAuthMessage(service, nonce, options?)` | `ReviewOptions` | the signature |
+| `signTransaction(data, options?)` | `ReviewOptions` | `{ signedTx }` |
+| `sendTransaction`, `submitTransaction`, `callContract`, `sendPrivateTransfer`, `claimPrivateTransfer`, `encryptBalance`, `decryptBalance` | `WriteOptions` | `TransactionResult & WriteOutcome` |
+| `deployContract(data, options?)` | `WriteOptions` | `ContractDeployResult & WriteOutcome` |
+| `registerPrivateViewKey`, `sendContractTransactionSequence` | `WriteOptions` | the wallet's result plus `WriteOutcome` |
+
+```typescript
+interface WriteOutcome {
+  requestId: string;
+  requestStatus: 'submitted' | 'confirmed' | 'completed'; // 'completed' when the write gives no hash
+  epoch?: number;                                          // wait: 'confirmed'
+  receipt?: ContractReceipt | null;                        // contract calls and deploys, wait: 'confirmed'
+  receiptUnavailable?: 'not_contract' | 'refused' | 'error';
+}
+interface ContractReceipt { contract: string; method: string; success: boolean; effort?: number; events: { event: string; values: unknown }[]; error?: unknown }
+```
+
+The field is `requestStatus`, not `status`, so the RFC-O-1 `status` of `TransactionResult` keeps the value the wallet sent. Octra's single call receipt has no return value: a contract that must report a result (shares minted, a queue position) emits it as an event, or the site reads it with `contractCallView` after `confirmed`.
+
+`wait: 'confirmed'` resolves on `confirmed` and rejects with `EXECUTION_FAILED` (`details: { requestId, hash, reason }`) when the chain rejects or drops the transaction, with the usual codes for review and submit failures, and with `STATUS_UNKNOWN` after 10 minutes. A protocol 2 wallet watches the chain and pushes the result; the SDK asks `request_status` after 5 s without news. With a protocol 1 wallet the SDK reads `octra_transaction` through the wallet's `rpc_call` (every 4 s for a minute, then every 10 s) and one `contract_receipt`; when the wallet refuses `rpc_call` it rejects with `UNSUPPORTED_METHOD` and `details.hash`. Never a resend.
+
+### Following a request
+
+```typescript
+newRequestId(): string                                          // 32 lowercase hex, 128 random bits
+requestStatus(requestId: string): Promise<RequestStatus>
+waitForRequest(requestId: string, options?: { until?: 'submitted' | 'final'; timeoutMs?: number; onStatus?: (s: RequestStatus) => void }): Promise<RequestStatus>
+cancelRequest(requestId: string): Promise<RequestStatus>        // only before approval
+pendingRequest(): { requestId: string; method: string; status: RequestStatusValue } | null
+openInAppUrl(url?: string, options?: { scheme?: boolean }): string | null
+wallet.on('requestUpdate', (event) => event.data as RequestStatus)
+```
+
+```typescript
+interface RequestStatus {
+  requestId: string;
+  status: 'pending' | 'review_open' | 'locked' | 'signing' | 'submitted' | 'confirmed'
+        | 'completed' | 'failed' | 'rejected' | 'expired' | 'unknown';
+  method?: string;
+  network?: string;        // only once the site is connected
+  address?: string;        // the signer, only once the site is connected
+  hash?: string;           // from 'submitted' on
+  epoch?: number;
+  receipt?: ContractReceipt | null;
+  receiptUnavailable?: 'not_contract' | 'refused' | 'error';
+  result?: unknown;        // 'completed', at most 4 KB
+  error?: { code: string; message: string; stage: 'review' | 'submit' | 'execution' };
+  watching?: boolean;      // false once the wallet stopped watching a 'submitted' tx
+  seq: number;             // grows with every change
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+| Status | Meaning | Next |
+|---|---|---|
+| `pending` | the wallet has it; waits behind another review or prepares one | `locked`, `review_open`, `submitted` (`broadcast_only`), `completed` (nothing to review), `failed`, `rejected` |
+| `locked` | waits for unlock; only a connected site sees it | `review_open`, `rejected`, `expired`, `failed` |
+| `review_open` | the review is on screen | `signing`, `completed`, `rejected`, `expired`, `failed` |
+| `signing` | approved; signing, proofs, submit | `submitted`, `failed` |
+| `submitted` | the node accepted it; `hash` is the node's | `confirmed`, `failed` |
+| `confirmed`, `completed`, `failed`, `rejected`, `expired` | final, never change | |
+| `unknown` | nobody knows the id (never seen, another origin, evicted, restarted) | |
+
+A site that is not connected reaches only the public reads: `ping`, `register_dapp`, `disconnect`, `getConnectionStatus`, network reads, contract view and storage reads, `rpcCall`, `wallet_hello`, `request_status` and `cancel_request`. Everything else answers `NOT_CONNECTED` at once with no review, and no answer to such a site carries an address, public key or balance.
+
+The lock is never visible to a site that is not connected. While the wallet is locked such a site gets the same `getConnectionStatus`, `ping` and `wallet_hello` answers as when it is unlocked, and `NOT_CONNECTED` at once for anything but `connect`, with no review and no unlock prompt. Its `connect` reads `review_open` from the start and keeps the same `seq` and `updatedAt` across the unlock, with no `requestUpdate` at that moment.
+
+`completed` ends a review with no transaction (connect, switch_network, signMessage). Connect from a connected site, a switch to the current network and `registerPrivateViewKey` for a registered account go `pending` to `completed` with no review. `broadcast_only` goes `pending` to `submitted` with no second review: the only valid signature comes from the wallet's own `signTransaction` review, which already showed what was signed. The wallet refuses with `INVALID_PARAMS`, before any review, a `broadcast_only` whose `signedTx.from` is not the connected wallet.
+
+#### `registerPrivateViewKey({ address }, options?)`
+
+Makes the connected wallet able to receive private transfers (its view key on chain) and claim them (a confirmed PVAC key).
+
+| Account | What happens | Statuses | Result |
+|---|---|---|---|
+| Already registered | Nothing is signed, no review | `pending`, `completed` | `{ status: 'registered', view_pubkey, pvac: true, requestStatus: 'completed' }` |
+| Not registered | One review with the live fee, then an empty key switch, which puts the public key (and so the view key) and the PVAC key on chain | `pending`, `review_open`, `signing`, `submitted` (hash), `confirmed` | `{ hash, txHash, requestStatus }`; read `view_pubkey` after `confirmed` |
+| `address` is not the connected wallet | Refused before any review | none | `INVALID_PARAMS` |
+| Another PVAC key is registered for the account | Refused before any review: a key switch could strand its encrypted balance | none | `PVAC_KEY_MISMATCH` |
+| This wallet's registration is submitted and not yet confirmed | Refused before any review | none | `REGISTRATION_PENDING` |
+| Balance below the fee | Refused before any review | none | `INSUFFICIENT_BALANCE` |
+
+The checks run in this order: another address, already registered (wins over a pending flag), another key, a pending registration, the balance.
+
+There is no free registration: `octra_registerPublicKey` is a no-op on a BFT network, and the node derives the view key from the public key a transaction carries.
+
+With a protocol 2 wallet `requestStatus` and `requestUpdate` come from the wallet, which keeps records 24 hours (cleared on browser or app restart). With a protocol 1 wallet they come from the SDK's record for the page's lifetime: `pending`, then the call's outcome; `unknown` after a reload. A protocol 1 wallet cannot recognise an id, so the SDK joins a repeated id itself and, once a call with that id timed out, refuses to send it again (`STATUS_UNKNOWN`): a new id is a new review the user sees.
+
+### Timeouts
+
+- A review call's wait ends with `STATUS_UNKNOWN`, `details: { requestId, lastStatus }`. The review stays open; the site asks `requestStatus` or `waitForRequest` later.
+- With a protocol 2 wallet the wait counts from the last status change. Default: the transport's wait (180 s, 600 s for private transfers and on 0xio Desktop).
+- `NETWORK_ERROR` is a failed link (socket closed, extension gone); on a review call it carries the id and `details.status: 'unknown'`, because the wallet may still finish it.
+- 0xio Desktop: a protocol 2 desktop gets no `site_cancel` on a timeout; on page close only reviews not yet approved are cancelled, and an approved request finishes with its outcome kept. A protocol 1 desktop still gets `site_cancel` on a timeout, as in 2.11.0.
+
+### Opening a site in the app
+
+`openInAppUrl(url = location.href)` returns `https://0xio.xyz/open?url=<encoded>` for an https URL without credentials (at most 2048 characters), and null otherwise; `{ scheme: true }` gives `oxio://open?url=<encoded>` for in-app and QR use. The SDK never navigates; put the link on a button. The app shows the site's origin and asks before it opens; the link carries a URL and nothing else.
+
+### Wire protocol (for wallet developers)
+
+| | Extension and app (postMessage) | 0xio Desktop direct (WebSocket) |
+|---|---|---|
+| Request | `request: { id, method, params, timestamp, v: 2, rid? }` | `site_request { v: 1, _id, id, network, rid?, request }` |
+| Hello | `wallet_hello { sdk, protocols: [1, 2] }` answered `{ protocol: 2, kind, version, capabilities }` | `protocol` and `capabilities` in the `site_hello` reply |
+| Status | `request_status { rid }` | `site_status { v: 1, _id, rid }`, reply `{ result }` |
+| Cancel | `cancel_request { rid }` | `site_cancel { id?, rid }` |
+| Event | `event: { type: 'requestUpdate', data: RequestStatus }` | `site_event` kind `request` |
+
+- Capabilities: `announce`, `request_id`, `request_status`, `request_events`, `idempotent`, `wait_confirmed`, `receipt`, `can_sign`, `kind`.
+- `rid`: 32 lowercase hex, only on review methods; anything else is `INVALID_PARAMS`. Records are keyed by origin (from the browser, never from params) and `rid`.
+- An error answer carries `rid` and `status` at the top level and in `error.details` as `{ requestId, status }`. The SDK reads `status` from `error.status`, `error.details.status` or the top level, in that order; it knows the id itself.
+- Same request: sha256 of the canonical JSON of `{ method, network, params }` (keys sorted by code point, no whitespace); `network` is the frame's network on Desktop and `null` on postMessage channels, which carry none.
+- Rate limits: `RATE_LIMITED` for more than 20 requests a second from a page (always an answer, never a drop), `RATE_LIMIT_EXCEEDED` for a 9th open request of a site.
+- The conformance suite in `conformance/` checks every rule; see `conformance/README.md`.
+
 ## Advanced Usage
 
 ### Built-in Networks
@@ -1565,9 +1735,25 @@ enum ErrorCode {
   RECIPIENT_NOT_REGISTERED = 'RECIPIENT_NOT_REGISTERED',
   DEPLOY_FAILED = 'DEPLOY_FAILED',
   DEPLOY_CHANGED = 'DEPLOY_CHANGED',            // the contract address moved during the review
-  WATCH_ONLY = 'WATCH_ONLY'                     // the wallet is watch-only and cannot sign (2.10.0)
+  WATCH_ONLY = 'WATCH_ONLY',                    // the wallet is watch-only and cannot sign (2.10.0)
+  UNSUPPORTED_METHOD = 'UNSUPPORTED_METHOD',
+  NETWORK_CHANGED = 'NETWORK_CHANGED',
+  WALLET_CHANGED = 'WALLET_CHANGED',
+  STATUS_UNKNOWN = 'STATUS_UNKNOWN',            // the SDK stopped waiting; the wallet may still finish (2.12.0)
+  REQUEST_ID_REUSED = 'REQUEST_ID_REUSED',      // the id belongs to another request (2.12.0)
+  EXECUTION_FAILED = 'EXECUTION_FAILED',        // wait: 'confirmed' and the chain rejected or dropped it (2.12.0)
+  PVAC_KEY_MISMATCH = 'PVAC_KEY_MISMATCH',      // registerPrivateViewKey: another key is registered for the account (2.12.0)
+  REGISTRATION_PENDING = 'REGISTRATION_PENDING' // registerPrivateViewKey: this wallet's registration is unconfirmed (2.12.0)
 }
 ```
+
+Errors of review calls carry the request id in `error.requestId` and `error.details.requestId`. `RATE_LIMIT_EXCEEDED` names its cause in `details.reason`:
+
+| `details.reason` | Cause | Wire code from the wallet |
+|---|---|---|
+| `review_pending` | another review of this page is open (`details.requestId`, `details.status` name it) | none, the SDK refuses before sending |
+| `requests_per_second` | more than 20 requests a second from the page | `RATE_LIMITED` |
+| `open_requests` | 8 requests of the site already wait in the wallet | `RATE_LIMIT_EXCEEDED` |
 
 The wallet refuses anything that signs, submits or changes state until the page has connected, and a page can open the unlock screen at most once a minute. Both come back as `NOT_CONNECTED` or `WALLET_LOCKED`. While the wallet is locked, `getBalance` and the private balance reads also return `WALLET_LOCKED` (extension 3.0.0 and newer).
 

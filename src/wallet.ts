@@ -1,6 +1,27 @@
 import { EventEmitter } from './events';
 import { ExtensionCommunicator } from './communication';
-import { DesktopTransport, canUseDesktopTransport, localNetworkPermission } from './desktop';
+import { DesktopFailure, DesktopTransport, canUseDesktopTransport, localNetworkPermission } from './desktop';
+import { detectWallet } from './detect';
+import {
+  CONFIRM_WAIT_MS,
+  FALLBACK_POLL,
+  RequestMeta,
+  RequestTracker,
+  STATUS_POLL_MS,
+  isFinalStatus,
+  isLifecycleMethod,
+  isRequestId,
+  isRequestStatusValue,
+  newRequestId,
+  openInAppUrl,
+  parseContractReceipt,
+  parseRequestStatus,
+  requestDigestInput,
+  resultHash,
+  resultHashes,
+  statusRank,
+  unknownRequestStatus,
+} from './lifecycle';
 import {
   Balance,
   ConnectionInfo,
@@ -17,6 +38,7 @@ import {
   PrivateBalanceInfo,
   PrivateTransferData,
   PendingPrivateTransfer,
+  PrivateViewKeyRegistration,
   ErrorCode,
   ZeroXIOWalletError,
   ConnectEvent,
@@ -24,7 +46,16 @@ import {
   AccountChangedEvent,
   BalanceChangedEvent,
   NetworkChangedEvent,
-  WalletTransportKind
+  WalletTransportKind,
+  WalletInfo,
+  RequestStatus,
+  ReviewOptions,
+  WriteOptions,
+  WriteOutcome,
+  WaitForRequestOptions,
+  PendingRequestInfo,
+  DetectResult,
+  ContractReceipt
 } from './types';
 import { getNetworkConfig, createDefaultBalance, validateBalance, validateNetworkInfo } from './config';
 import { createLogger, isValidAddress, isValidAmount, deriveOctraAddress, octToMicro } from './utils';
@@ -34,31 +65,96 @@ import { buildAuthMessage } from './signing';
 const DEPLOY_MAX_CODE_BYTES = 512 * 1024;
 const DEPLOY_MAX_OU = 50_000_000;
 
-/** What the SDK needs from a transport; the extension communicator and 0xio Desktop both give it. */
-type Transport = Pick<ExtensionCommunicator, 'initialize' | 'isExtensionAvailable' | 'sendRequest' | 'on' | 'cleanup'>;
+type Transport = Pick<ExtensionCommunicator, 'initialize' | 'isExtensionAvailable' | 'on' | 'cleanup'> & {
+  sendRequest<T = any>(method: string, params?: any, timeout?: number, meta?: RequestMeta): Promise<T>;
+} & Partial<{
+  touchRequest(rid: string): void;
+  walletHello(): Promise<WalletInfo>;
+  queryRequestStatus(rid: string): Promise<unknown>;
+  cancelRequestOnWallet(rid: string): Promise<unknown>;
+}>;
+
+type ConfirmFields = Pick<WriteOutcome, 'epoch' | 'receipt' | 'receiptUnavailable'>;
+
+/** `rpc_call` answers that mean "never", not "not yet". */
+const REFUSAL_CODES = new Set<string>([
+  ErrorCode.METHOD_NOT_ALLOWED,
+  ErrorCode.PERMISSION_DENIED,
+  ErrorCode.UNSUPPORTED_METHOD,
+  ErrorCode.NOT_AVAILABLE,
+  ErrorCode.NOT_CONNECTED,
+  ErrorCode.INVALID_PARAMS,
+]);
+
+function isRefusal(error: unknown): boolean {
+  if (!(error instanceof ZeroXIOWalletError)) return false;
+  if (REFUSAL_CODES.has(error.code)) return true;
+  return error.code === ErrorCode.UNKNOWN_ERROR && /unknown method|unsupported|not supported|not allowed/i.test(error.message);
+}
+
+function primitiveDetails(details: unknown): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  if (!details || typeof details !== 'object' || details instanceof Error) return out;
+  for (const [k, v] of Object.entries(details)) {
+    if (k === 'requestId' || k === 'status') continue;
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = v;
+  }
+  return out;
+}
+
+class Stopper {
+  stopped = false;
+  private timers = new Set<{ timer: ReturnType<typeof setTimeout>; done: (v: boolean) => void }>();
+
+  wait(ms: number): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const entry = {
+        timer: setTimeout(() => {
+          this.timers.delete(entry);
+          resolve(!this.stopped);
+        }, ms),
+        done: resolve,
+      };
+      this.timers.add(entry);
+    });
+  }
+
+  stop(): void {
+    this.stopped = true;
+    for (const t of this.timers) {
+      clearTimeout(t.timer);
+      t.done(false);
+    }
+    this.timers.clear();
+  }
+}
 
 const DISCONNECT_REASONS = new Set<DisconnectEvent['reason']>([
   'user_action', 'extension_unavailable', 'network_error', 'extension_locked',
 ]);
 
-/** The wallet's canSign as reported, or undefined when it sends none (older extensions). */
 const canSignOf = (value: unknown): boolean | undefined =>
   typeof value === 'boolean' ? value : undefined;
 
-/** Refusals that say what to change in the wallet keep their own code through the per-method wrapping. */
+/** Refusals that say what to change keep their code through the per-method wrapping. */
 const KEPT_CODES = new Set<ErrorCode>([
   ErrorCode.WATCH_ONLY,
   ErrorCode.NOT_AVAILABLE,
   ErrorCode.UNSUPPORTED_METHOD,
   ErrorCode.NETWORK_CHANGED,
   ErrorCode.WALLET_CHANGED,
+  ErrorCode.STATUS_UNKNOWN,
+  ErrorCode.REQUEST_ID_REUSED,
+  ErrorCode.EXECUTION_FAILED,
+  ErrorCode.PVAC_KEY_MISMATCH,
+  ErrorCode.REGISTRATION_PENDING,
 ]);
 
 function rethrowWalletRefusal(error: unknown): void {
   if (error instanceof ZeroXIOWalletError && KEPT_CODES.has(error.code)) throw error;
 }
 
-/** Bytes a strict base64 string decodes to, or null when it is not strict base64. */
 function base64DecodedLength(value: string): number | null {
   if (!value || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
   const pad = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
@@ -74,9 +170,10 @@ export class ZeroXIOWallet extends EventEmitter {
   private connectionInfo: ConnectionInfo = { isConnected: false };
   private isInitialized = false;
   private _initPromise: Promise<boolean> | null = null;
-  // session version, for stale write detection
   private _sessionVersion = 0;
   private logger: ReturnType<typeof createLogger>;
+  private _walletInfo: WalletInfo | null = null;
+  private _requests: RequestTracker | undefined;
 
   constructor(config: SDKConfig) {
     super(config.debug);
@@ -92,7 +189,8 @@ export class ZeroXIOWallet extends EventEmitter {
     this.communicator = new ExtensionCommunicator(
       this.config.debug,
       this.config.trustedParentOrigins ?? [],
-      this.config.adapter
+      this.config.adapter,
+      { detectTimeoutMs: this.config.detectTimeoutMs }
     );
 
     this.logger.log('Wallet instance created with config:', this.config);
@@ -111,19 +209,26 @@ export class ZeroXIOWallet extends EventEmitter {
       try {
         let communicationReady = await this.communicator.initialize();
         let transport: WalletTransportKind = 'extension';
+        let desktopFailure: DesktopFailure = 'not-running';
         if (!communicationReady && this.desktopAllowed()) {
           const permission = await localNetworkPermission();
           if (permission === 'prompt') {
-            // Opening the socket now would show the browser's prompt to every visitor without
-            // the extension; connect() is a user gesture and tries the desktop then.
+            // A socket now would show the browser's prompt to every visitor; connect() is a gesture
             this._desktopOnConnect = true;
             this.isInitialized = true;
             this.logger.log('No 0xio extension answered; 0xio Desktop will be tried on connect()');
             return true;
           }
-          if (permission !== 'denied' && await this.attachDesktop()) {
-            transport = 'desktop';
-            communicationReady = true;
+          if (permission === 'denied') {
+            desktopFailure = 'blocked';
+          } else {
+            const attached = await this.attachDesktop();
+            if (attached === true) {
+              transport = 'desktop';
+              communicationReady = true;
+            } else {
+              desktopFailure = attached;
+            }
           }
         }
         if (!communicationReady) {
@@ -131,7 +236,8 @@ export class ZeroXIOWallet extends EventEmitter {
             ErrorCode.EXTENSION_NOT_FOUND,
             this.desktopAllowed()
               ? 'No 0xio wallet answered: install the 0xio extension or open 0xio Desktop'
-              : 'Failed to establish communication with 0xio Wallet extension'
+              : 'Failed to establish communication with 0xio Wallet extension',
+            { desktop: this.desktopAllowed() ? desktopFailure : 'not-allowed' }
           );
         }
 
@@ -161,7 +267,6 @@ export class ZeroXIOWallet extends EventEmitter {
     return this._initPromise;
   }
 
-  /** Registers the dapp with the chosen transport and follows its events. */
   private async registerWithTransport(transport: WalletTransportKind): Promise<void> {
     await this.communicator.sendRequest('register_dapp', {
       appName: this.config.appName,
@@ -175,14 +280,16 @@ export class ZeroXIOWallet extends EventEmitter {
     this.setupExtensionEventListeners();
     this._transport = transport;
     this._desktopOnConnect = false;
+    this._walletInfo = this.communicator.walletHello ? await this.communicator.walletHello() : null;
   }
 
-  /** Opens 0xio Desktop and makes it the transport. False when it does not answer. */
-  private async attachDesktop(): Promise<boolean> {
+  private async attachDesktop(): Promise<true | DesktopFailure> {
     const desktop = new DesktopTransport({ debug: this.config.debug, networkId: this.config.networkId });
+    desktop.on('connectProgress', (event) => this.emit('connectProgress', event.data));
     if (!(await desktop.initialize())) {
+      const failure = desktop.lastFailure ?? 'not-running';
       desktop.cleanup();
-      return false;
+      return failure;
     }
     this.communicator.cleanup();
     this.communicator = desktop;
@@ -190,10 +297,6 @@ export class ZeroXIOWallet extends EventEmitter {
     return true;
   }
 
-  /**
-   * connect() after an initialize() that deferred the desktop: the extension if it has appeared
-   * since, else 0xio Desktop, waiting for the browser's local network prompt.
-   */
   private ensureTransportForConnect(): Promise<void> {
     if (this._transport || !this._desktopOnConnect) return Promise.resolve();
     if (!this._attachPromise) {
@@ -202,10 +305,12 @@ export class ZeroXIOWallet extends EventEmitter {
           await this.registerWithTransport('extension');
           return;
         }
-        if (!(await this.attachDesktop())) {
+        const attached = await this.attachDesktop();
+        if (attached !== true) {
           throw new ZeroXIOWalletError(
             ErrorCode.EXTENSION_NOT_FOUND,
-            'No 0xio wallet answered: install the 0xio extension or open 0xio Desktop'
+            'No 0xio wallet answered: install the 0xio extension or open 0xio Desktop',
+            { desktop: attached }
           );
         }
         await this.registerWithTransport('desktop');
@@ -216,25 +321,16 @@ export class ZeroXIOWallet extends EventEmitter {
     return this._attachPromise;
   }
 
-  /**
-   * Which wallet transport is in use: `'extension'` (the 0xio extension or a parent app bridge)
-   * or `'desktop'` (0xio Desktop directly). `null` before initialize, and while
-   * `desktopAvailableOnConnect` is true.
-   */
+  /** `'extension'` (or a parent bridge) or `'desktop'`; null before initialize and while `desktopAvailableOnConnect`. */
   get transport(): WalletTransportKind | null {
     return this._transport;
   }
 
-  /**
-   * True when initialize() found no extension and left 0xio Desktop for connect(): the browser
-   * would ask the visitor for local network access first, so the SDK waits for a user gesture.
-   * `transport` is null meanwhile; connect() picks the extension if it has appeared, else the desktop.
-   */
+  /** True while 0xio Desktop waits for connect(), because the browser would prompt first. */
   get desktopAvailableOnConnect(): boolean {
     return this._desktopOnConnect && !this._transport;
   }
 
-  /** 0xio Desktop is tried only when the site allows it, in a browser page that may reach it. */
   private desktopAllowed(): boolean {
     if (this.config.desktop === false) return false;
     if (this.config.adapter && this.config.adapter.name !== '0xio') return false;
@@ -245,26 +341,115 @@ export class ZeroXIOWallet extends EventEmitter {
     return this.isInitialized && this.communicator.isExtensionAvailable();
   }
 
-  async connect(options: ConnectOptions = {}): Promise<ConnectEvent> {
+  /**
+   * The wallet behind the transport: kind, version, protocol and capabilities. Null until a
+   * transport is chosen.
+   * @since 2.12.0
+   */
+  get walletInfo(): WalletInfo | null {
+    return this._walletInfo ?? null;
+  }
+
+  /**
+   * The injected wallet, 0xio Desktop's presence and the next step, before any click and without
+   * `initialize()`. Never shows a browser prompt.
+   * @since 2.12.0
+   */
+  detect(): Promise<DetectResult> {
+    return detectWallet({ detectTimeoutMs: this.config.detectTimeoutMs, desktop: this.desktopAllowed() });
+  }
+
+  /** A request id to store before a call. @since 2.12.0 */
+  newRequestId(): string {
+    return newRequestId();
+  }
+
+  /**
+   * A link that opens `url` (default: this page) in the 0xio app; `{ scheme: true }` gives the
+   * `oxio://` form. Null for anything but https.
+   * @since 2.12.0
+   */
+  openInAppUrl(url?: string, options?: { scheme?: boolean }): string | null {
+    return openInAppUrl(url, options);
+  }
+
+  /**
+   * Where a request stands. Protocol 1 wallets keep no record, so the SDK answers from this page's
+   * own, which a reload loses.
+   * @since 2.12.0
+   */
+  async requestStatus(requestId: string): Promise<RequestStatus> {
+    this.ensureInitialized();
+    this.assertRequestId(requestId);
+    if (this.speaks('request_status') && this.communicator.queryRequestStatus) {
+      try {
+        const answer = parseRequestStatus(await this.communicator.queryRequestStatus(requestId));
+        if (answer && answer.requestId === requestId) {
+          if (answer.status !== 'unknown') this.tracker.wallet(answer, true);
+          return this.tracker.snapshot(requestId) ?? answer;
+        }
+      } catch (error) {
+        this.logger.warn('request_status failed, answering from the SDK record:', error);
+      }
+    }
+    return this.tracker.snapshot(requestId) ?? unknownRequestStatus(requestId);
+  }
+
+  /**
+   * Resolves with the status once the request is final (or on chain with `until: 'submitted'`),
+   * whatever the outcome.
+   * @throws ZeroXIOWalletError with code STATUS_UNKNOWN when `timeoutMs` (default 10 minutes) runs out
+   * @since 2.12.0
+   */
+  async waitForRequest(requestId: string, options: WaitForRequestOptions = {}): Promise<RequestStatus> {
+    const current = await this.requestStatus(requestId);
+    const until = options.until ?? 'final';
+    const done = (s: RequestStatus) =>
+      s.status === 'unknown' ||
+      isFinalStatus(s.status) ||
+      (until === 'submitted' && statusRank(s.status) >= statusRank('submitted'));
+    if (done(current)) return current;
+    const hashes = current.hash ? [current.hash] : [];
+    return this.follow(requestId, current.method ?? '', hashes, done, options.timeoutMs ?? CONFIRM_WAIT_MS, options.onStatus);
+  }
+
+  /** Closes a review that was not approved yet; an approved request is unchanged. @since 2.12.0 */
+  async cancelRequest(requestId: string): Promise<RequestStatus> {
+    this.ensureInitialized();
+    this.assertRequestId(requestId);
+    if (!this.communicator.cancelRequestOnWallet) {
+      throw new ZeroXIOWalletError(ErrorCode.UNSUPPORTED_METHOD, 'This wallet cannot cancel a request from the site');
+    }
+    const answer = parseRequestStatus(await this.communicator.cancelRequestOnWallet(requestId));
+    if (answer && answer.requestId === requestId) this.tracker.wallet(answer);
+    return this.tracker.snapshot(requestId) ?? answer ?? unknownRequestStatus(requestId);
+  }
+
+  /** The review of this page that blocks a new one and `switchNetwork`. @since 2.12.0 */
+  pendingRequest(): PendingRequestInfo | null {
+    const rec = this._requests?.inReview();
+    if (!rec) return null;
+    return { requestId: rec.status.requestId, method: rec.status.method ?? '', status: rec.status.status };
+  }
+
+  async connect(options: ConnectOptions & ReviewOptions = {}): Promise<ConnectEvent> {
     this.ensureInitialized();
     await this.ensureTransportForConnect();
 
     try {
       this.logger.log('Attempting to connect with options:', options);
 
-      // filter to declared perms only: accept both RFC 'permissions' and legacy 'requestPermissions'
       const declaredPermissions = this.config.requiredPermissions || [];
       const requestedPerms = options.permissions ?? options.requestPermissions;
       const requestedPermissions = requestedPerms
         ? requestedPerms.filter(p => declaredPermissions.includes(p))
         : declaredPermissions;
 
-      const result = await this.communicator.sendRequest('connect', {
+      const { data: result } = await this.review<any>('connect', {
         permissions: toWalletPermissions(requestedPermissions),
         networkId: options.networkId || this.config.networkId
-      });
+      }, options);
 
-      // verify the public key to address binding
       if (result.publicKey && result.address) {
         try {
           const derived = await deriveOctraAddress(result.publicKey);
@@ -280,7 +465,6 @@ export class ZeroXIOWallet extends EventEmitter {
         }
       }
 
-      // Use networkInfo from the extension response, validated before caching.
       const networkInfo = validateNetworkInfo(result.networkInfo)
         ?? (result.networkId ? getNetworkConfig(result.networkId) : null);
 
@@ -290,13 +474,10 @@ export class ZeroXIOWallet extends EventEmitter {
           'Wallet did not return valid network metadata.'
         );
       }
-      // The wallet answers with its own scope names; the names the dapp asked for are kept as
-      // aliases so existing permission checks keep working.
       const permissions = withLegacyAliases(result.permissions, requestedPermissions);
 
       const canSign = canSignOf(result.canSign);
 
-      // Update connection info, including permissions
       this.connectionInfo = {
         isConnected: true,
         address: result.address,
@@ -317,7 +498,6 @@ export class ZeroXIOWallet extends EventEmitter {
         permissions
       };
 
-      // Emit connect event
       this.emit('connect', connectEvent);
 
       this.logger.log('Connected successfully:', { address: connectEvent.address, network: networkInfo.id });
@@ -338,9 +518,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Disconnect from wallet
-   */
   async disconnect(): Promise<void> {
     this.ensureInitialized();
 
@@ -363,23 +540,14 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Check if connected to wallet
-   */
   isConnected(): boolean {
     return this.connectionInfo.isConnected;
   }
 
-  /**
-   * Get current connection info
-   */
   getConnectionInfo(): ConnectionInfo {
     return { ...this.connectionInfo };
   }
 
-  /**
-   * Check connection status with extension
-   */
   async getConnectionStatus(): Promise<ConnectionInfo> {
     this.ensureInitialized();
 
@@ -387,11 +555,9 @@ export class ZeroXIOWallet extends EventEmitter {
       const sv = this._sessionVersion;
       const result = await this.communicator.sendRequest('getConnectionStatus');
 
-      // skip if session changed mid-flight
       if (this._sessionVersion !== sv) return { ...this.connectionInfo };
 
       if (result.isConnected && result.address) {
-        // verify the public key to address binding
         if (result.publicKey) {
           try {
             const derived = await deriveOctraAddress(result.publicKey);
@@ -405,7 +571,6 @@ export class ZeroXIOWallet extends EventEmitter {
           }
         }
 
-        // validate untrusted balance/networkInfo before caching
         const balanceInfo = validateBalance(result.balance) ?? createDefaultBalance();
         const networkInfo = validateNetworkInfo(result.networkInfo)
           ?? (result.networkId ? getNetworkConfig(result.networkId) : null);
@@ -418,7 +583,6 @@ export class ZeroXIOWallet extends EventEmitter {
         const wasConnected = this.connectionInfo.isConnected;
         const permissions = withLegacyAliases(result.permissions, this.config.requiredPermissions);
 
-        // preserve existing connectedAt
         const connectedAt = this.connectionInfo.connectedAt || result.connectedAt || Date.now();
 
         const canSign = canSignOf(result.canSign);
@@ -436,7 +600,6 @@ export class ZeroXIOWallet extends EventEmitter {
 
         this.logger.log('Discovered existing connection:', { address: result.address, network: networkInfo.id });
 
-        // only emit on the disconnected to connected transition
         if (!wasConnected) {
           const connectEvent: ConnectEvent = {
             address: result.address,
@@ -450,7 +613,6 @@ export class ZeroXIOWallet extends EventEmitter {
           this.emit('connect', connectEvent);
         }
       } else {
-        // No existing connection
         this.connectionInfo = { isConnected: false };
       }
 
@@ -464,24 +626,20 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Ask the wallet to switch its active network (e.g. 'mainnet' to 'devnet').
-   * The wallet asks the user to confirm first; declining rejects with USER_REJECTED. The call is
-   * also refused while another request from this page is waiting for approval.
-   * On a switch the wallet emits 'networkChanged' to connected dApps.
+   * The wallet asks the user first; refused while another review of this page waits.
+   * @throws ZeroXIOWalletError with code USER_REJECTED when the user declines
    */
-  async switchNetwork(networkId: string): Promise<{ network: string; switched: boolean }> {
+  async switchNetwork(networkId: string, options?: ReviewOptions): Promise<{ network: string; switched: boolean }> {
     this.ensureConnected();
 
     try {
       const sv = this._sessionVersion;
-      const result = await this.communicator.sendRequest('switch_network', { networkId });
+      const { data: result } = await this.review<any>('switch_network', { networkId }, options);
       this.logger.log(`Network switch result:`, result);
 
-      // skip if session changed mid-flight
       if (this._sessionVersion !== sv) return { network: result.network || networkId, switched: result.switched ?? false };
 
       if (result.switched) {
-        // Update internal state
         const networkInfo = getNetworkConfig(networkId);
         if (this.connectionInfo.isConnected) {
           this.connectionInfo.networkInfo = networkInfo;
@@ -495,9 +653,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Get the extension's current network ID ('mainnet' or 'devnet')
-   */
   getNetworkId(): string | null {
     return this.connectionInfo.networkInfo?.id || null;
   }
@@ -507,19 +662,15 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Whether the connected wallet can sign. `false` is a watch-only wallet: show a read-only state,
-   * since every signing request fails with `WATCH_ONLY`. `undefined` when not connected or when the
-   * extension does not report it (older than 3.0.3); a missing public key then hints at watch-only.
+   * `false` is a watch-only wallet; `undefined` when not connected or not reported, and a missing
+   * public key then hints at watch-only.
    * @since 2.10.0
    */
   canSign(): boolean | undefined {
     return this.connectionInfo.isConnected ? this.connectionInfo.canSign : undefined;
   }
 
-  /**
-   * The connected account's Ed25519 public key (base64). Served from the session when the
-   * wallet reported it at connect, otherwise asked from the wallet.
-   */
+  /** Base64 Ed25519 key of the connected account. */
   async getPublicKey(): Promise<string> {
     this.ensureConnected();
     if (this.connectionInfo.publicKey) return this.connectionInfo.publicKey;
@@ -541,7 +692,6 @@ export class ZeroXIOWallet extends EventEmitter {
         throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'No address found');
       }
 
-      // Fetch balance from extension (bypasses CORS, has access to private balance)
       let publicBalance = 0;
       let privateBalance = 0;
 
@@ -559,14 +709,12 @@ export class ZeroXIOWallet extends EventEmitter {
         currency: 'OCT'
       };
 
-      // skip if session changed mid-flight
       if (this._sessionVersion !== sv) return result;
 
       if (this.connectionInfo.balance) {
         const previousBalance = this.connectionInfo.balance;
         this.connectionInfo.balance = result;
 
-        // emit on total or pub/priv split change
         if (previousBalance.total !== result.total ||
             previousBalance.public !== result.public ||
             previousBalance.private !== result.private) {
@@ -605,7 +753,6 @@ export class ZeroXIOWallet extends EventEmitter {
         throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Extension returned invalid network info');
       }
 
-      // skip if session changed mid-flight
       if (this._sessionVersion !== sv) return networkInfo;
 
       if (this.connectionInfo.networkInfo) {
@@ -635,7 +782,7 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  async sendTransaction(txData: TransactionData): Promise<TransactionResult> {
+  async sendTransaction(txData: TransactionData, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
     if (!isValidAddress(txData.to)) {
@@ -647,14 +794,13 @@ export class ZeroXIOWallet extends EventEmitter {
     }
 
     try {
-      // log non-sensitive only
       this.logger.log('Sending transaction:', { to: txData.to });
 
-      const result = await this.communicator.sendRequest('send_transaction', { ...txData, amount });
+      const { data, outcome } = await this.write<any>('send_transaction', { ...txData, amount }, options);
+      const result = this.withOutcome(data, outcome);
 
       this.logger.log('Transaction result:', result);
 
-      // Refresh balance after successful transaction (accept RFC 'accepted' or legacy 'success')
       if (result.accepted ?? result.success) {
         setTimeout(() => {
           this.getBalance(true).catch(error => {
@@ -679,11 +825,8 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Sign a transaction without broadcasting it (RFC-O-1 octra_signTransaction).
-   * Returns the signed transaction object for manual submission via submitTransaction().
-   */
-  async signTransaction(txData: TransactionData): Promise<{ signedTx: any }> {
+  /** Signs without broadcasting; submit the result with submitTransaction(). */
+  async signTransaction(txData: TransactionData, options?: ReviewOptions): Promise<{ signedTx: any }> {
     this.ensureConnected();
 
     if (!isValidAddress(txData.to)) {
@@ -696,7 +839,7 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       this.logger.log('Requesting transaction signature:', { to: txData.to });
-      const result = await this.communicator.sendRequest('sign_transaction', { ...txData, amount });
+      const { data: result } = await this.review<any>('sign_transaction', { ...txData, amount }, options);
       return result;
     } catch (error) {
       if (error instanceof ZeroXIOWalletError) throw error;
@@ -704,11 +847,8 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Broadcast a pre-signed transaction (RFC-O-1 octra_submitTransaction).
-   * Use after signTransaction() to submit the signed tx to the network.
-   */
-  async submitTransaction(signedTx: any): Promise<TransactionResult> {
+  /** Broadcasts a transaction from signTransaction(). */
+  async submitTransaction(signedTx: any, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
     if (!signedTx || typeof signedTx !== 'object') {
@@ -717,19 +857,16 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       this.logger.log('Submitting pre-signed transaction');
-      const result = await this.communicator.sendRequest('broadcast_only', { signedTx });
-      return result;
+      const { data, outcome } = await this.write<any>('broadcast_only', { signedTx }, options);
+      return this.withOutcome(data, outcome);
     } catch (error) {
       if (error instanceof ZeroXIOWalletError) throw error;
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Failed to submit transaction', error);
     }
   }
 
-  /**
-   * Call a smart contract method (state-changing).
-   * The extension builds, signs, and submits the transaction via octra_submit.
-   */
-  async callContract(callData: ContractCallData): Promise<TransactionResult> {
+  /** A state changing contract call, reviewed and signed in the wallet. */
+  async callContract(callData: ContractCallData, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
     if (!isValidAddress(callData.contract)) {
@@ -760,10 +897,9 @@ export class ZeroXIOWallet extends EventEmitter {
     }
 
     try {
-      // log non-sensitive only
       this.logger.log('Calling contract:', { contract: callData.contract, method: callData.method });
 
-      const result = await this.communicator.sendRequest('call_contract', {
+      const { data, outcome } = await this.write<any>('call_contract', {
         contract: callData.contract,
         method: callData.method,
         params: callData.params,
@@ -774,7 +910,8 @@ export class ZeroXIOWallet extends EventEmitter {
               ? String(callData.amount)
               : '0',
         ou: callData.ou != null ? String(callData.ou) : '10000',
-      });
+      }, options);
+      const result = this.withOutcome(data, outcome);
 
       this.logger.log('Contract call result:', result);
       return result;
@@ -793,12 +930,8 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Deploy a contract. The wallet asks the node for the contract address, shows the code size,
-   * that address, the constructor params and the fee for review, then signs and submits an
-   * op_type "deploy" transaction.
-   */
-  async deployContract(deployData: ContractDeployData): Promise<ContractDeployResult> {
+  /** The review shows the code size, the contract address from the node, the params and the fee. */
+  async deployContract(deployData: ContractDeployData, options?: WriteOptions): Promise<ContractDeployResult & WriteOutcome> {
     this.ensureConnected();
 
     const bytecode = deployData?.bytecode;
@@ -841,11 +974,11 @@ export class ZeroXIOWallet extends EventEmitter {
       const payload: Record<string, unknown> = { bytecode };
       if (params) payload.params = params;
       if (ou) payload.ou = ou;
-      const result = await this.communicator.sendRequest('deploy_contract', payload);
-      return {
+      const { data: result, outcome } = await this.write<any>('deploy_contract', payload, options);
+      return this.withOutcome({
         txHash: result?.txHash ?? result?.hash,
         contractAddress: result?.contractAddress,
-      };
+      }, outcome);
     } catch (error) {
       this.logger.error('Contract deploy failed:', error);
       if (error instanceof ZeroXIOWalletError) throw error;
@@ -853,10 +986,7 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Read-only contract view call (no signing, no approval popup).
-   * Use this to query contract state without submitting a transaction.
-   */
+  /** Read only; no review. */
   async contractCallView(viewData: ContractViewCallData): Promise<any> {
     this.ensureInitialized();
 
@@ -879,14 +1009,12 @@ export class ZeroXIOWallet extends EventEmitter {
     }
 
     try {
-      // log non-sensitive only
       this.logger.log('Contract view call:', { contract: viewData.contract, method: viewData.method });
 
       const result = await this.communicator.sendRequest('contract_call_view', {
         contract: viewData.contract,
         method: viewData.method,
         params: viewData.params,
-        // only include caller if explicit
         ...(viewData.caller != null ? { caller: viewData.caller } : {}),
       });
 
@@ -907,9 +1035,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Read contract storage by key.
-   */
   async getContractStorage(contract: string, key: string): Promise<string | null> {
     this.ensureInitialized();
 
@@ -947,9 +1072,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Get transaction history
-   */
   async getTransactionHistory(page = 1, limit = 20): Promise<TransactionHistory> {
     this.ensureConnected();
 
@@ -985,12 +1107,8 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Encrypt public balance to private.
-   * @deprecated The 0xio extension does not serve this through the bridge (it answers
-   * NOT_AVAILABLE); users encrypt from the extension's Privacy screen.
-   */
-  async encryptBalance(amount: string | number): Promise<TransactionResult> {
+  /** @deprecated The 0xio extension answers NOT_AVAILABLE; users encrypt from its Privacy screen. */
+  async encryptBalance(amount: string | number, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
     this.assertExactOCTAmount(amount, 'Encrypt amount');
 
@@ -999,9 +1117,9 @@ export class ZeroXIOWallet extends EventEmitter {
     }
 
     try {
-      const result = await this.communicator.sendRequest('encrypt_balance', { amount });
+      const { data, outcome } = await this.write<any>('encrypt_balance', { amount }, options);
+      const result = this.withOutcome(data, outcome);
 
-      // Refresh balance after encryption
       setTimeout(() => {
         this.getBalance(true).catch(() => { });
       }, 1000);
@@ -1017,12 +1135,8 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Decrypt private balance to public.
-   * @deprecated The 0xio extension does not serve this through the bridge (it answers
-   * NOT_AVAILABLE); users decrypt from the extension's Privacy screen.
-   */
-  async decryptBalance(amount: string | number): Promise<TransactionResult> {
+  /** @deprecated The 0xio extension answers NOT_AVAILABLE; users decrypt from its Privacy screen. */
+  async decryptBalance(amount: string | number, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
     this.assertExactOCTAmount(amount, 'Decrypt amount');
 
@@ -1031,9 +1145,9 @@ export class ZeroXIOWallet extends EventEmitter {
     }
 
     try {
-      const result = await this.communicator.sendRequest('decrypt_balance', { amount });
+      const { data, outcome } = await this.write<any>('decrypt_balance', { amount }, options);
+      const result = this.withOutcome(data, outcome);
 
-      // Refresh balance after decryption
       setTimeout(() => {
         this.getBalance(true).catch(() => { });
       }, 1000);
@@ -1049,15 +1163,8 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Send a private (encrypted) transfer to another address.
-   * The extension builds the PVAC ciphertext subtraction + range proof + zero proof,
-   * then submits the encrypted transaction to the network. The recipient's encrypted
-   * balance is updated by the node using re-encryption under their public key.
-   * Requires 'private_transfers' permission.
-   * @since 2.6.0
-   */
-  async sendPrivateTransfer(transferData: PrivateTransferData): Promise<TransactionResult> {
+  /** Needs the 'private_transfers' permission; proofs run in the wallet after the review. @since 2.6.0 */
+  async sendPrivateTransfer(transferData: PrivateTransferData, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
     if (!isValidAddress(transferData.to)) {
@@ -1067,18 +1174,17 @@ export class ZeroXIOWallet extends EventEmitter {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transfer amount');
     }
     this.assertExactOCTAmount(transferData.amount, 'Transfer amount');
-    // bound msg size
     if (transferData.message && transferData.message.length > 1000) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Transfer message too long (max 1,000 characters)');
     }
 
     try {
-      const result = await this.communicator.sendRequest('send_private_transfer', {
+      const { data, outcome } = await this.write<any>('send_private_transfer', {
         ...transferData,
         ...(transferData.amountRaw ? { amount_raw: transferData.amountRaw } : {}),
-      });
+      }, options);
+      const result = this.withOutcome(data, outcome);
 
-      // Refresh balance after transfer (accept RFC 'accepted' or legacy 'success')
       if (result.accepted ?? result.success) {
         setTimeout(() => {
           this.getBalance(true).catch(() => { });
@@ -1096,11 +1202,7 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Get pending private transfers that can be claimed by this wallet.
-   * Returns transfers where the connected address is the recipient.
-   * @since 2.6.0
-   */
+  /** Transfers the connected address can claim. @since 2.6.0 */
   async getPendingPrivateTransfers(): Promise<PendingPrivateTransfer[]> {
     this.ensureConnected();
 
@@ -1117,24 +1219,20 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /**
-   * Claim a pending private transfer, adding it to the wallet's encrypted balance.
-   * @since 2.6.0
-   */
-  async claimPrivateTransfer(transferId: string): Promise<TransactionResult> {
+  /** @since 2.6.0 */
+  async claimPrivateTransfer(transferId: string, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
-    // validate transfer ID
     if (!transferId || typeof transferId !== 'string') {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, 'Invalid transfer ID');
     }
 
     try {
-      const result = await this.communicator.sendRequest('claim_private_transfer', {
+      const { data, outcome } = await this.write<any>('claim_private_transfer', {
         transferId
-      });
+      }, options);
+      const result = this.withOutcome(data, outcome);
 
-      // Refresh balance after claiming (accept RFC 'accepted' or legacy 'success')
       if (result.accepted ?? result.success) {
         setTimeout(() => {
           this.getBalance(true).catch(() => { });
@@ -1152,33 +1250,20 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  // Generic provider passthrough and RFP private primitives (since 2.8.0)
-  // These route through the wallet bridge. The wallet keeps all private/FHE
-  // secret material internal and returns only ciphertexts/proofs/tx hashes.
-
-  /**
-   * Send any wallet method + params through the bridge. Escape hatch for
-   * primitives that don't have a typed helper yet (no SDK upgrade needed).
-   * @since 2.8.0
-   */
+  /** Any wallet method, for primitives without a typed helper. @since 2.8.0 */
   async request<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (isLifecycleMethod(method)) {
+      return (await this.review<T>(method, params)).data;
+    }
     return this.communicator.sendRequest(method, params) as Promise<T>;
   }
 
-  /**
-   * Read-only node RPC through the wallet. Only the wallet's allow-listed public methods work
-   * (octra_balance, octra_transaction, contract_call and similar); writes are refused.
-   * @since 2.8.0
-   */
+  /** Read only node RPC; only the wallet's allow-listed methods. @since 2.8.0 */
   async rpcCall<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
     return this.communicator.sendRequest('rpc_call', { method, params }) as Promise<T>;
   }
 
-  /**
-   * Feature-detect which private capabilities the connected wallet supports.
-   * Lets a dapp render the correct UI (or fail closed) before any action.
-   * @since 2.8.0
-   */
+  /** @since 2.8.0 */
   async getPrivateCapabilities(): Promise<{
     wallet: string;
     version: string;
@@ -1189,62 +1274,64 @@ export class ZeroXIOWallet extends EventEmitter {
     return this.communicator.sendRequest('get_private_capabilities');
   }
 
-  /** Read-only contract view (no approval popup). @since 2.8.0 */
+  /** Read only; no review. @since 2.8.0 */
   async callContractView(params: { contract: string; method: string; params?: unknown[]; caller?: string }): Promise<unknown> {
     this.ensureConnected();
     return this.communicator.sendRequest('contract_call_view', params);
   }
 
-  /** Encrypt a raw integer value to a contract-ready ciphertext (keys stay in wallet). @since 2.8.0 */
+  /** Keys stay in the wallet. @since 2.8.0 */
   async encryptValue(params: { value_raw: string; token?: string; owner?: string; asset?: string }): Promise<{ cipher: string; commitment?: string; encoding?: string }> {
     this.ensureConnected();
     return this.communicator.sendRequest('encrypt_value', params);
   }
 
-  /** Decrypt a ciphertext to a raw integer value. @since 2.8.0 */
+  /** @since 2.8.0 */
   async decryptValue(params: { cipher: string; token?: string; owner?: string }): Promise<{ value_raw: string; display?: string; decimals?: number }> {
     this.ensureConnected();
     return this.communicator.sendRequest('decrypt_value', params);
   }
 
-  /** Zero proof for a ciphertext (proves it encrypts the given value, default 0). @since 2.8.0 */
+  /** Proves the cipher encrypts `value_raw`, default 0. @since 2.8.0 */
   async makeZeroProof(params: { cipher: string; value_raw?: string; token?: string; owner?: string }): Promise<{ proof: string; commitment?: string; blinding?: string; encoding?: string }> {
     this.ensureConnected();
     return this.communicator.sendRequest('make_zero_proof', params);
   }
 
-  /** Range proof for a ciphertext. @since 2.8.0 */
+  /** @since 2.8.0 */
   async makeRangeProof(params: { cipher: string; value_raw: string; token?: string; owner?: string; range?: { min_raw: string; max_raw: string } }): Promise<{ proof: string; encoding?: string }> {
     this.ensureConnected();
     return this.communicator.sendRequest('make_range_proof', params);
   }
 
-  /** Private OCT + private token balances (decrypted inside the wallet). @since 2.8.0 */
+  /** Decrypted inside the wallet. @since 2.8.0 */
   async getPrivateBalance(params: { address?: string; assets?: string[]; tokens?: string[]; include_claimable?: boolean } = {}): Promise<unknown> {
     this.ensureConnected();
     return this.communicator.sendRequest('get_private_balance', params);
   }
 
-  /** Register a receive/view public key so an address can receive private transfers. @since 2.8.0 */
-  async registerPrivateViewKey(params: { address: string }): Promise<unknown> {
+  /**
+   * Makes the connected wallet able to receive and claim private transfers. A registered account
+   * completes at once with nothing signed; otherwise one reviewed key switch pays the fee.
+   * @throws ZeroXIOWalletError with code INVALID_PARAMS for another address, PVAC_KEY_MISMATCH when another
+   *   key is registered, REGISTRATION_PENDING while one is unconfirmed, INSUFFICIENT_BALANCE below the fee
+   * @since 2.8.0
+   */
+  async registerPrivateViewKey(params: { address: string }, options?: WriteOptions): Promise<PrivateViewKeyRegistration & WriteOutcome> {
     this.ensureConnected();
-    return this.communicator.sendRequest('register_private_view_key', params);
+    const { data, outcome } = await this.write<any>('register_private_view_key', params, options);
+    return this.withOutcome(data, outcome);
   }
 
   /** Submit an ordered multi-step public contract flow under one approval. @since 2.8.0 */
-  async sendContractTransactionSequence(params: { sequence_id?: string; transactions: Array<{ contract: string; method: string; params?: unknown[]; amount?: string; ou?: string }> }): Promise<unknown> {
+  async sendContractTransactionSequence(params: { sequence_id?: string; transactions: Array<{ contract: string; method: string; params?: unknown[]; amount?: string; ou?: string }> }, options?: WriteOptions): Promise<unknown> {
     this.ensureConnected();
-    return this.communicator.sendRequest('send_contract_transaction_sequence', params);
+    const { data, outcome } = await this.write<any>('send_contract_transaction_sequence', params, options);
+    return this.withOutcome(data, outcome);
   }
 
   /**
-   * Sign an arbitrary message with the wallet's private key.
-   * The user will be prompted to approve the signature request in the extension.
-   *
-   * The wallet does not sign the raw message: it signs the 0xio Signed Message framing
-   * (`"Octra Signed Message:\n" + byteLength + "\n" + message`) so a signed message can never be a
-   * transaction pre-image. Verify with `verifyMessage(message, signature, publicKey)`, or check an
-   * Ed25519 signature against `getSignedMessageBytes(message)` with your own library.
+   * The wallet signs the framed message (see `getSignedMessageBytes`), never the raw one.
    *
    * @param message - The message to sign (non-empty string)
    * @returns Promise resolving to the base64-encoded Ed25519 signature
@@ -1255,10 +1342,9 @@ export class ZeroXIOWallet extends EventEmitter {
    * const ok = await verifyMessage('Hello, 0xio!', signature, await wallet.getPublicKey());
    * ```
    */
-  async signMessage(message: string): Promise<string> {
+  async signMessage(message: string, options?: ReviewOptions): Promise<string> {
     this.ensureConnected();
 
-    // Validate input
     if (!message || typeof message !== 'string') {
       throw new ZeroXIOWalletError(
         ErrorCode.SIGNATURE_FAILED,
@@ -1275,9 +1361,8 @@ export class ZeroXIOWallet extends EventEmitter {
 
     try {
       this.logger.log('Requesting message signature for:', message.substring(0, 100) + (message.length > 100 ? '...' : ''));
-      const result = await this.communicator.sendRequest('signMessage', { message });
+      const { data: result } = await this.review<any>('signMessage', { message }, options);
 
-      // Extension returns { signature: string }
       const signature = result?.signature || result;
 
       this.logger.log('Message signed successfully');
@@ -1298,15 +1383,14 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   /**
-   * Sign a domain-separated authentication message.
-   * Unlike `signMessage()`, this prepends a standard header that binds the signature
-   * to the calling service and a one-time nonce, preventing cross-service replay attacks.
+   * Binds the signature to the service, the nonce and the page origin, so it cannot be replayed
+   * against another service.
    *
    * @param service - Identifies the relying service (e.g. 'MyDApp' or 'api.mydapp.com')
    * @param nonce   - Unique one-time value. Use a server-generated UUID or challenge
    * @returns Promise resolving to the base64-encoded Ed25519 signature
    */
-  async signAuthMessage(service: string, nonce: string): Promise<string> {
+  async signAuthMessage(service: string, nonce: string, options?: ReviewOptions): Promise<string> {
     this.ensureConnected();
 
     if (!service || typeof service !== 'string') {
@@ -1317,7 +1401,346 @@ export class ZeroXIOWallet extends EventEmitter {
     }
 
     const origin = typeof window !== 'undefined' ? window.location.origin : 'unknown';
-    return this.signMessage(buildAuthMessage(service, nonce, origin));
+    return this.signMessage(buildAuthMessage(service, nonce, origin), options);
+  }
+
+  private get tracker(): RequestTracker {
+    if (!this._requests) {
+      this._requests = new RequestTracker((status) => this.emit('requestUpdate', status));
+    }
+    return this._requests;
+  }
+
+  private lifecycleActive(): boolean {
+    return typeof this.communicator.touchRequest === 'function';
+  }
+
+  private speaks(capability: string): boolean {
+    const info = this._walletInfo;
+    return !!info && info.protocol === 2 && info.capabilities.includes(capability);
+  }
+
+  private assertRequestId(requestId: unknown): asserts requestId is string {
+    if (!isRequestId(requestId)) {
+      throw new ZeroXIOWalletError(
+        ErrorCode.INVALID_PARAMS,
+        'A request id is 32 lowercase hex characters; make one with newRequestId()'
+      );
+    }
+  }
+
+  private async review<T = any>(
+    method: string,
+    params: any,
+    options: ReviewOptions = {}
+  ): Promise<{ data: T; requestId: string }> {
+    if (!this.lifecycleActive()) {
+      return { data: await this.communicator.sendRequest<T>(method, params), requestId: '' };
+    }
+    const rid = options.requestId ?? newRequestId();
+    this.assertRequestId(rid);
+    const network = method === 'connect' || method === 'switch_network'
+      ? (params?.networkId ?? null)
+      : (this.getNetworkId() ?? this.config?.networkId ?? null);
+    const key = requestDigestInput(method, params, network);
+    const tracker = this.tracker;
+    const known = tracker.get(rid);
+
+    if (known) {
+      if (known.key !== null && known.key !== key) {
+        const err = new ZeroXIOWalletError(
+          ErrorCode.REQUEST_ID_REUSED,
+          'This request id belongs to another request; make a new id',
+          { requestId: rid }
+        );
+        err.requestId = rid;
+        throw err;
+      }
+      if (known.promise || known.outcome) {
+        const stop = options.onStatus ? tracker.subscribe(rid, options.onStatus) : null;
+        try {
+          if (known.promise) return await known.promise as { data: T; requestId: string };
+          if (known.outcome!.ok) return { data: known.outcome!.value, requestId: rid };
+          throw known.outcome!.error;
+        } finally {
+          stop?.();
+        }
+      }
+      if (!this.speaks('idempotent')) {
+        // A protocol 1 wallet cannot recognise the id, so sending it again would open a new review.
+        const err = new ZeroXIOWalletError(
+          ErrorCode.STATUS_UNKNOWN,
+          'This wallet cannot be asked again about this request; a new request id opens a new review',
+          { requestId: rid, lastStatus: known.status.status }
+        );
+        err.requestId = rid;
+        throw err;
+      }
+    }
+
+    const busy = tracker.inReview(rid);
+    if (busy) {
+      throw new ZeroXIOWalletError(
+        ErrorCode.RATE_LIMIT_EXCEEDED,
+        'Another request from this page is waiting for review. Please wait for it to complete.',
+        { reason: 'review_pending', requestId: busy.status.requestId, status: busy.status.status }
+      );
+    }
+
+    const isNew = !known;
+    const rec = tracker.begin(rid, method, key, network ?? undefined);
+    const stopFollowing = options.onStatus ? tracker.subscribe(rid, options.onStatus) : null;
+    if (isNew && options.onStatus) {
+      try {
+        options.onStatus(rec.status);
+      } catch {
+        // a site callback must not break the call
+      }
+    }
+    const run = (async () => {
+      try {
+        const data = await this.communicator.sendRequest<T>(method, params, undefined, {
+          rid,
+          ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        });
+        const hash = resultHash(data);
+        tracker.local(rid, hash ? { status: 'submitted', hash } : { status: 'completed' });
+        rec.outcome = { ok: true, value: data };
+        return { data, requestId: rid };
+      } catch (error) {
+        throw this.lifecycleError(rid, error);
+      } finally {
+        rec.promise = undefined;
+      }
+    })();
+    rec.promise = run;
+    try {
+      return await run;
+    } finally {
+      stopFollowing?.();
+    }
+  }
+
+  private lifecycleError(rid: string, error: unknown): ZeroXIOWalletError {
+    const base = error instanceof ZeroXIOWalletError
+      ? error
+      : new ZeroXIOWalletError(ErrorCode.UNKNOWN_ERROR, error instanceof Error ? error.message : 'Request failed');
+    const tracker = this.tracker;
+    const current = tracker.snapshot(rid);
+    const keep = primitiveDetails(base.details);
+    let details: Record<string, unknown>;
+    if (base.code === ErrorCode.STATUS_UNKNOWN) {
+      details = { ...keep, requestId: rid, lastStatus: current?.status ?? 'pending' };
+    } else if (base.code === ErrorCode.NETWORK_ERROR) {
+      // The wallet may have the request and still finish it.
+      details = { ...keep, requestId: rid, status: 'unknown' };
+    } else {
+      const wireStatus = isRequestStatusValue(base.details?.status) ? base.details.status : undefined;
+      const status = base.code === ErrorCode.USER_REJECTED
+        ? (wireStatus === 'expired' ? 'expired' : 'rejected')
+        : 'failed';
+      const stage = current?.status === 'signing' ? 'submit' : 'review';
+      tracker.local(rid, status === 'failed'
+        ? { status, error: { code: base.code, message: base.message.slice(0, 500), stage } }
+        : { status });
+      details = { ...keep, requestId: rid, status };
+    }
+    const out = new ZeroXIOWalletError(base.code, base.message, details);
+    out.requestId = rid;
+    const rec = tracker.get(rid);
+    const now = tracker.snapshot(rid);
+    if (rec && now && isFinalStatus(now.status)) rec.outcome = { ok: false, error: out };
+    return out;
+  }
+
+  private async write<T = any>(
+    method: string,
+    params: any,
+    options: WriteOptions = {}
+  ): Promise<{ data: T; outcome?: WriteOutcome }> {
+    const { data, requestId } = await this.review<T>(method, params, options);
+    if (!requestId) return { data };
+    const hashes = resultHashes(data);
+    if (!hashes.length && this.tracker.snapshot(requestId)?.status === 'completed') {
+      return { data, outcome: { requestId, requestStatus: 'completed' } };
+    }
+    if (options.wait !== 'confirmed') return { data, outcome: { requestId, requestStatus: 'submitted' } };
+    const done = (s: RequestStatus) => isFinalStatus(s.status);
+    const final = await this.follow(requestId, method, hashes, done, CONFIRM_WAIT_MS, options.onStatus);
+    return { data, outcome: this.confirmedOutcome(final, hashes[hashes.length - 1]) };
+  }
+
+  private confirmedOutcome(final: RequestStatus, hash?: string): WriteOutcome {
+    const requestId = final.requestId;
+    if (final.status === 'confirmed' || final.status === 'completed') {
+      return {
+        requestId,
+        requestStatus: 'confirmed',
+        ...(final.epoch !== undefined ? { epoch: final.epoch } : {}),
+        ...(final.receipt !== undefined ? { receipt: final.receipt } : {}),
+        ...(final.receiptUnavailable ? { receiptUnavailable: final.receiptUnavailable } : {}),
+      };
+    }
+    const reason = final.error?.message ?? final.status;
+    const err = final.status === 'failed' && final.error?.stage === 'execution'
+      ? new ZeroXIOWalletError(ErrorCode.EXECUTION_FAILED, `The chain did not execute the transaction: ${reason}`, {
+        requestId,
+        hash: final.hash ?? hash,
+        reason,
+      })
+      : new ZeroXIOWalletError(
+        (final.error?.code as ErrorCode) ?? ErrorCode.TRANSACTION_FAILED,
+        final.error?.message ?? 'The transaction did not complete',
+        { requestId, status: final.status }
+      );
+    err.requestId = requestId;
+    throw err;
+  }
+
+  private follow(
+    rid: string,
+    method: string,
+    hashes: string[],
+    done: (s: RequestStatus) => boolean,
+    timeoutMs: number,
+    onStatus?: (s: RequestStatus) => void
+  ): Promise<RequestStatus> {
+    const tracker = this.tracker;
+    const stopper = new Stopper();
+    return new Promise<RequestStatus>((resolve, reject) => {
+      let finished = false;
+      let unsubscribe: () => void = () => {};
+      const finish = (fn: () => void) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadline);
+        stopper.stop();
+        unsubscribe();
+        fn();
+      };
+      const deadline = setTimeout(() => {
+        const last = tracker.snapshot(rid);
+        const err = new ZeroXIOWalletError(
+          ErrorCode.STATUS_UNKNOWN,
+          'Stopped waiting; the wallet may still finish this request',
+          { requestId: rid, lastStatus: last?.status ?? 'unknown', ...(last?.hash ? { hash: last.hash } : {}) }
+        );
+        err.requestId = rid;
+        finish(() => reject(err));
+      }, timeoutMs);
+      const walletWatches = this.speaks('wait_confirmed');
+      let chainStarted = false;
+      const startChain = (s: RequestStatus | null) => {
+        if (walletWatches || chainStarted || !s || s.status !== 'submitted') return;
+        const onChain = hashes.length ? hashes : s.hash ? [s.hash] : [];
+        if (!onChain.length) return;
+        chainStarted = true;
+        this.pollChain(rid, method || s.method || '', onChain, stopper).catch((error) => {
+          finish(() => reject(error));
+        });
+      };
+      const check = (s: RequestStatus | null) => {
+        if (s && done(s)) finish(() => resolve(s));
+        else startChain(s);
+      };
+      unsubscribe = tracker.subscribe(rid, (s) => {
+        onStatus?.(s);
+        check(s);
+      });
+      check(tracker.snapshot(rid));
+      if (finished) return;
+      if (this.speaks('request_status')) void this.pollStatus(rid, stopper);
+    });
+  }
+
+  private async pollStatus(rid: string, stopper: Stopper): Promise<void> {
+    let lastSeq = this.tracker.snapshot(rid)?.seq ?? 0;
+    while (await stopper.wait(STATUS_POLL_MS)) {
+      const seq = this.tracker.snapshot(rid)?.seq ?? 0;
+      if (seq !== lastSeq) {
+        lastSeq = seq;
+        continue;
+      }
+      try {
+        await this.requestStatus(rid);
+      } catch {
+        // the next round asks again
+      }
+      lastSeq = this.tracker.snapshot(rid)?.seq ?? 0;
+    }
+  }
+
+  private async pollChain(rid: string, method: string, hashes: string[], stopper: Stopper): Promise<void> {
+    const started = Date.now();
+    const tracker = this.tracker;
+    let epoch: number | undefined;
+    for (const hash of hashes) {
+      for (;;) {
+        const every = Date.now() - started < FALLBACK_POLL.fastForMs ? FALLBACK_POLL.fastEveryMs : FALLBACK_POLL.slowEveryMs;
+        if (!(await stopper.wait(every))) return;
+        let tx: any;
+        try {
+          const res: any = await this.communicator.sendRequest('rpc_call', { method: 'octra_transaction', params: [hash] });
+          tx = res && typeof res === 'object' && 'status' in res ? res : res?.result;
+        } catch (error) {
+          if (stopper.stopped) return;
+          if (isRefusal(error)) {
+            const err = new ZeroXIOWalletError(
+              ErrorCode.UNSUPPORTED_METHOD,
+              'This wallet cannot report confirmation; the transaction was submitted',
+              { requestId: rid, hash, status: 'submitted' }
+            );
+            err.requestId = rid;
+            throw err;
+          }
+          continue;
+        }
+        if (stopper.stopped) return;
+        const status = tx?.status;
+        if (status === 'confirmed') {
+          if (typeof tx.epoch === 'number') epoch = tx.epoch;
+          break;
+        }
+        if (status === 'rejected' || status === 'dropped') {
+          const reason = String(tx?.error?.reason ?? tx?.error?.type ?? status).slice(0, 500);
+          tracker.local(rid, {
+            status: 'failed',
+            hash,
+            error: { code: ErrorCode.EXECUTION_FAILED, message: reason, stage: 'execution' },
+          });
+          return;
+        }
+      }
+    }
+    const receiptFields = method === 'call_contract' || method === 'deploy_contract'
+      ? await this.readReceipt(hashes[hashes.length - 1])
+      : {};
+    if (stopper.stopped) return;
+    tracker.local(rid, { status: 'confirmed', ...(epoch !== undefined ? { epoch } : {}), ...receiptFields });
+  }
+
+  private async readReceipt(hash: string): Promise<ConfirmFields> {
+    try {
+      const res: any = await this.communicator.sendRequest('rpc_call', { method: 'contract_receipt', params: [hash] });
+      const receipt: ContractReceipt | null = parseContractReceipt(res && typeof res === 'object' && 'success' in res ? res : res?.result);
+      return receipt ? { receipt } : { receipt: null, receiptUnavailable: 'error' };
+    } catch (error) {
+      const refused = isRefusal(error) || (error instanceof Error && /single scanner read/i.test(error.message));
+      return { receipt: null, receiptUnavailable: refused ? 'refused' : 'error' };
+    }
+  }
+
+  private withOutcome<T>(data: T, outcome?: WriteOutcome): T & WriteOutcome {
+    if (!outcome || !data || typeof data !== 'object') return data as T & WriteOutcome;
+    return { ...(data as object), ...outcome } as T & WriteOutcome;
+  }
+
+  private handleRequestUpdate(data: unknown): void {
+    const update = parseRequestStatus(data);
+    if (!update) return;
+    if (this._requests?.wallet(update)) {
+      this.communicator.touchRequest?.(update.requestId);
+    }
   }
 
   private ensureInitialized(): void {
@@ -1385,6 +1808,10 @@ export class ZeroXIOWallet extends EventEmitter {
       this.handleWalletDisconnect(event.data);
     });
 
+    this.communicator.on('requestUpdate', (event) => {
+      this.handleRequestUpdate(event.data);
+    });
+
     this.logger.log('Extension event listeners setup complete');
   }
 
@@ -1394,7 +1821,6 @@ export class ZeroXIOWallet extends EventEmitter {
     const canSign = canSignOf(data.canSign);
 
     this.connectionInfo.address = data.address;
-    // clear stale pubkey on acct change
     this.connectionInfo.publicKey = data.publicKey;
     this.connectionInfo.canSign = canSign;
     if (data.balance) {
@@ -1402,7 +1828,7 @@ export class ZeroXIOWallet extends EventEmitter {
       if (validated) {
         this.connectionInfo.balance = validated;
       } else {
-        this.connectionInfo.balance = undefined;  // clear stale balance
+        this.connectionInfo.balance = undefined;
       }
     }
 
@@ -1422,7 +1848,6 @@ export class ZeroXIOWallet extends EventEmitter {
   private handleNetworkChanged(data: { networkInfo: NetworkInfo }): void {
     const previousNetwork = this.connectionInfo.networkInfo;
 
-    // validate networkInfo, drop invalid
     const networkInfo = validateNetworkInfo(data.networkInfo);
     if (!networkInfo) {
       this.logger.warn('Received invalid networkInfo in networkChanged event, ignoring');
@@ -1430,7 +1855,6 @@ export class ZeroXIOWallet extends EventEmitter {
     }
     this.connectionInfo.networkInfo = networkInfo;
 
-    // invalidate balance on network change
     this.connectionInfo.balance = undefined;
 
     const networkChangedEvent: NetworkChangedEvent = {
@@ -1479,7 +1903,6 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Extension locked - disconnected');
   }
 
-  /** The wallet ended this site's session, or the link to it dropped. */
   private handleWalletDisconnect(data: unknown): void {
     if (!this.connectionInfo.isConnected) return;
     ++this._sessionVersion;
@@ -1509,7 +1932,6 @@ export class ZeroXIOWallet extends EventEmitter {
       confirmations: data.confirmations
     });
 
-    // Refresh balance after transaction confirmation
     setTimeout(() => {
       this.getBalance(true).catch(() => { });
     }, 2000);
@@ -1517,10 +1939,6 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Transaction confirmed:', data.txHash);
   }
 
-  /**
-   * The wallet takes raw micro-OCT. `amount` passes through unchanged (what every existing
-   * dapp sends today); `amountOct` is converted exactly. Never both.
-   */
   private resolveRawAmount(
     amount: string | number | undefined,
     amountOct: string | number | undefined,
@@ -1539,11 +1957,7 @@ export class ZeroXIOWallet extends EventEmitter {
     return amount;
   }
 
-  /**
-   * Reject numeric amounts that cannot be represented exactly in micro-OCT.
-   * e.g. 0.1 + 0.2 = 0.30000000000000004: the extension would sign the wrong value.
-   * String amounts bypass this check (caller is responsible for correctness).
-   */
+  /** 0.1 + 0.2 is 0.30000000000000004: the wallet would sign the wrong value. */
   private assertExactOCTAmount(amount: string | number, label: string): void {
     if (typeof amount === 'number') {
       const micro = Math.round(amount * 1_000_000);
@@ -1566,6 +1980,8 @@ export class ZeroXIOWallet extends EventEmitter {
     this._initPromise = null;
     this._transport = null;
     this._desktopOnConnect = false;
+    this._walletInfo = null;
+    this._requests?.clear();
     ++this._sessionVersion;
 
     this.logger.log('SDK cleanup complete');

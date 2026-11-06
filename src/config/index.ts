@@ -3,10 +3,7 @@ import { Balance } from '../types';
 
 export * from './networks';
 
-/**
- * Default balance structure.
- * Accepts a numeric total or undefined. Never pass a Balance object here.
- */
+/** Takes a numeric total, never a Balance. */
 export function createDefaultBalance(total: number = 0): Balance {
   const safeTotal = typeof total === 'number' && Number.isFinite(total) && total >= 0 ? total : 0;
   return {
@@ -17,14 +14,10 @@ export function createDefaultBalance(total: number = 0): Balance {
   };
 }
 
-/**
- * Validate and normalise a Balance from an untrusted source (bridge response).
- * Returns null if the payload cannot be coerced into a valid Balance.
- */
+/** Null when untrusted bridge data is not a valid Balance. */
 export function validateBalance(raw: any): Balance | null {
   if (raw === null || raw === undefined) return null;
-  // If it's already a Balance-shaped object, extract numeric fields
-  // Use Number() not parseFloat(): parseFloat('10abc') silently returns 10
+  // Number(), not parseFloat(): parseFloat('10abc') is 10
   const pub = typeof raw === 'object' ? Number(raw.public ?? raw.total ?? 0) : Number(raw);
   const priv = typeof raw === 'object' ? Number(raw.private ?? 0) : 0;
   if (!Number.isFinite(pub) || pub < 0) return null;
@@ -40,9 +33,9 @@ export function validateBalance(raw: any): Balance | null {
 export const SDK_CONFIG = {
   version: '2.8.0',
   defaultNetworkId: DEFAULT_NETWORK_ID,
-  communicationTimeout: 30000, // 30 seconds
+  communicationTimeout: 30000,
   retryAttempts: 3,
-  retryDelay: 1000, // 1 second
+  retryDelay: 1000,
 } as const;
 
 export function getDefaultNetwork() {

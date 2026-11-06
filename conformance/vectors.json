@@ -1,0 +1,328 @@
+{
+  "description": "Wallet protocol 2 vectors. Generated from src/lifecycle.ts; test/vectors.test.ts keeps them in sync.",
+  "protocol": 2,
+  "capabilities": [
+    "announce",
+    "request_id",
+    "request_status",
+    "request_events",
+    "idempotent",
+    "wait_confirmed",
+    "receipt",
+    "can_sign",
+    "kind"
+  ],
+  "lifecycleMethods": [
+    "connect",
+    "switch_network",
+    "send_transaction",
+    "call_contract",
+    "deploy_contract",
+    "signMessage",
+    "sign_transaction",
+    "broadcast_only",
+    "send_contract_transaction_sequence",
+    "register_private_view_key",
+    "send_private_transfer",
+    "claim_private_transfer",
+    "encrypt_balance",
+    "decrypt_balance"
+  ],
+  "transactionMethods": [
+    "send_transaction",
+    "call_contract",
+    "deploy_contract",
+    "broadcast_only",
+    "send_contract_transaction_sequence",
+    "register_private_view_key",
+    "send_private_transfer",
+    "claim_private_transfer",
+    "encrypt_balance",
+    "decrypt_balance"
+  ],
+  "requestId": {
+    "pattern": "^[0-9a-f]{32}$",
+    "valid": [
+      "0123456789abcdef0123456789abcdef"
+    ],
+    "invalid": [
+      "0123456789ABCDEF0123456789ABCDEF",
+      "0123456789abcdef",
+      "0123456789abcdef0123456789abcdef0",
+      "g123456789abcdef0123456789abcdef",
+      ""
+    ]
+  },
+  "transitions": {
+    "pending": [
+      "locked",
+      "review_open",
+      "submitted",
+      "completed",
+      "failed",
+      "rejected"
+    ],
+    "locked": [
+      "review_open",
+      "rejected",
+      "expired",
+      "failed"
+    ],
+    "review_open": [
+      "signing",
+      "completed",
+      "rejected",
+      "expired",
+      "failed"
+    ],
+    "signing": [
+      "submitted",
+      "failed"
+    ],
+    "submitted": [
+      "confirmed",
+      "failed"
+    ],
+    "confirmed": [],
+    "completed": [],
+    "failed": [],
+    "rejected": [],
+    "expired": [],
+    "unknown": []
+  },
+  "finalStatuses": [
+    "confirmed",
+    "completed",
+    "failed",
+    "rejected",
+    "expired"
+  ],
+  "limits": {
+    "recordsPerOrigin": 64,
+    "openPerOrigin": 8,
+    "recordsGlobal": 1024,
+    "recordTtlMs": 86400000,
+    "resultMaxBytes": 4096,
+    "reviewWindowMs": 300000,
+    "watchFastEveryMs": 2500,
+    "watchFastForMs": 60000,
+    "watchSlowEveryMs": 10000,
+    "watchForMs": 600000,
+    "watchedPerWallet": 32,
+    "watchedPerOrigin": 8,
+    "chainCheckCacheMs": 5000,
+    "requestsPerSecond": 20,
+    "statusQueriesPerSecond": 2
+  },
+  "digest": [
+    {
+      "name": "connect with permissions",
+      "method": "connect",
+      "params": {
+        "permissions": [
+          "accounts"
+        ],
+        "networkId": "mainnet"
+      },
+      "network": null,
+      "canonical": "{\"method\":\"connect\",\"network\":null,\"params\":{\"networkId\":\"mainnet\",\"permissions\":[\"accounts\"]}}",
+      "sha256": "6351996048a185c040b620483db6a11cb5c51c403b184bc467c16c3faa61ef87"
+    },
+    {
+      "name": "keys sorted, nested",
+      "method": "call_contract",
+      "params": {
+        "ou": "10000",
+        "amount": "0",
+        "params": [
+          1,
+          "a",
+          true,
+          null
+        ],
+        "method": "deposit",
+        "contract": "octCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+      },
+      "network": null,
+      "canonical": "{\"method\":\"call_contract\",\"network\":null,\"params\":{\"amount\":\"0\",\"contract\":\"octCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\",\"method\":\"deposit\",\"ou\":\"10000\",\"params\":[1,\"a\",true,null]}}",
+      "sha256": "fff58239afdf2451d7bca712735781a10aaec73cfd5aa0c73592c424c3eaa43a"
+    },
+    {
+      "name": "desktop frame network",
+      "method": "send_transaction",
+      "params": {
+        "to": "octBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "amount": "1000"
+      },
+      "network": "devnet",
+      "canonical": "{\"method\":\"send_transaction\",\"network\":\"devnet\",\"params\":{\"amount\":\"1000\",\"to\":\"octBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"}}",
+      "sha256": "fa6b05541c3e5ab1f2939781e39753e9e9eb36c23ea668b742e602cb363c4754"
+    },
+    {
+      "name": "undefined dropped, array null",
+      "method": "signMessage",
+      "params": {
+        "message": "hi",
+        "list": [
+          null,
+          2
+        ]
+      },
+      "network": null,
+      "canonical": "{\"method\":\"signMessage\",\"network\":null,\"params\":{\"list\":[null,2],\"message\":\"hi\"}}",
+      "sha256": "3b1a46074e7f1028e68cb46e6a1aee3ba47d91a94c834cf0c35b26ed1ffb8e58"
+    },
+    {
+      "name": "unicode and escapes",
+      "method": "signMessage",
+      "params": {
+        "message": "café ☃ \"q\" \\ \n\t \u0001 😀"
+      },
+      "network": null,
+      "canonical": "{\"method\":\"signMessage\",\"network\":null,\"params\":{\"message\":\"café ☃ \\\"q\\\" \\\\ \\n\\t \\u0001 😀\"}}",
+      "sha256": "8382b8fedae3dacaa1ccbc834b1e786997f466ee0a4c13060c5fd0d71413a3be"
+    },
+    {
+      "name": "code point order",
+      "method": "call_contract",
+      "params": {
+        "b": 1,
+        "a": 2,
+        "B": 3,
+        "é": 4,
+        "z": {
+          "y": 1,
+          "x": [
+            {
+              "d": 1,
+              "c": 2
+            }
+          ]
+        }
+      },
+      "network": null,
+      "canonical": "{\"method\":\"call_contract\",\"network\":null,\"params\":{\"B\":3,\"a\":2,\"b\":1,\"z\":{\"x\":[{\"c\":2,\"d\":1}],\"y\":1},\"é\":4}}",
+      "sha256": "cb4e4f70de51d4c506861bd67b9b3c909623f58e61323625fc0f2c49ed5f6b38"
+    },
+    {
+      "name": "empty params",
+      "method": "switch_network",
+      "params": {},
+      "network": null,
+      "canonical": "{\"method\":\"switch_network\",\"network\":null,\"params\":{}}",
+      "sha256": "47379ce6dff848ad32a0b8126f15f4a37872680d6039d77e8a1c8c345c1f33de"
+    },
+    {
+      "name": "integers",
+      "method": "call_contract",
+      "params": {
+        "params": [
+          0,
+          -1,
+          9007199254740991,
+          1.5
+        ]
+      },
+      "network": null,
+      "canonical": "{\"method\":\"call_contract\",\"network\":null,\"params\":{\"params\":[0,-1,9007199254740991,1.5]}}",
+      "sha256": "a51422201f7c0b5979d40c05636be2f94e02739a761019423c4d50edbdbfd7ee"
+    }
+  ],
+  "idempotency": [
+    {
+      "stored": "pending",
+      "same": "join",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "locked",
+      "same": "join",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "review_open",
+      "same": "join",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "signing",
+      "same": "join",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "submitted",
+      "same": "stored_result",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "confirmed",
+      "same": "stored_result",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "completed",
+      "same": "stored_result",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "failed",
+      "same": "stored_error",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "rejected",
+      "same": "stored_error",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "expired",
+      "same": "stored_error",
+      "different": "REQUEST_ID_REUSED"
+    },
+    {
+      "stored": "unknown",
+      "same": "new_request",
+      "different": "new_request"
+    }
+  ],
+  "masking": [
+    {
+      "stored": "locked",
+      "connected": false,
+      "shown": "review_open",
+      "address": false,
+      "network": false
+    },
+    {
+      "stored": "locked",
+      "connected": true,
+      "shown": "locked",
+      "address": true,
+      "network": true
+    },
+    {
+      "stored": "review_open",
+      "connected": false,
+      "shown": "review_open",
+      "address": false,
+      "network": false
+    }
+  ],
+  "openInApp": [
+    {
+      "url": "https://pool.example/deposit?x=1",
+      "link": "https://0xio.xyz/open?url=https%3A%2F%2Fpool.example%2Fdeposit%3Fx%3D1",
+      "scheme": "oxio://open?url=https%3A%2F%2Fpool.example%2Fdeposit%3Fx%3D1"
+    },
+    {
+      "url": "http://pool.example/",
+      "link": null,
+      "scheme": null
+    },
+    {
+      "url": "https://user:pw@pool.example/",
+      "link": null,
+      "scheme": null
+    }
+  ]
+}
