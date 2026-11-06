@@ -7,6 +7,14 @@ export class EventEmitter {
 
   constructor(_debug = false) {}
 
+  /**
+   * @example
+   * ```typescript
+   * const onAccount = (event: WalletEvent<AccountChangedEvent>) => console.log(event.data.newAddress);
+   * wallet.on('accountChanged', onAccount);
+   * wallet.off('accountChanged', onAccount);
+   * ```
+   */
   on<T = any>(eventType: WalletEventType, listener: EventListener<T>): void {
     if (!this.listeners.has(eventType)) {
       this.listeners.set(eventType, new Set());

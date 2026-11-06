@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "0xio-docs": {
+      "type": "http",
+      "url": "https://docs.0xio.xyz/mcp"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@0xio/create-dapp",
+  "version": "1.0.0",
+  "description": "Scaffold a Vite, React and TypeScript dapp on @0xio/sdk",
+  "type": "module",
+  "bin": {
+    "create-dapp": "index.js"
+  },
+  "files": [
+    "index.js",
+    "template/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "0xio",
+    "octra",
+    "dapp",
+    "create",
+    "starter",
+    "vite",
+    "react"
+  ],
+  "author": {
+    "name": "0xio Labs",
+    "email": "team@0xio.xyz",
+    "url": "https://github.com/0xio-xyz"
+  },
+  "license": "MIT",
+  "homepage": "https://docs.0xio.xyz/developers/build-with-ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xio-xyz/0xio-sdk.git",
+    "directory": "create-dapp"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

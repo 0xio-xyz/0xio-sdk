@@ -2,6 +2,14 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.12.1] - 2026-11-07
+
+### Added
+
+- `AGENTS.md` in the package: rules for coding assistants writing against the SDK
+- `@example` blocks on the main public methods, shipped in `dist/index.d.ts`
+- Starter link: `npm create @0xio/dapp`
+
 ## [2.12.0] - 2026-11-07
 
 ### Security

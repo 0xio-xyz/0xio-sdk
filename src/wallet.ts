@@ -196,6 +196,22 @@ export class ZeroXIOWallet extends EventEmitter {
     this.logger.log('Wallet instance created with config:', this.config);
   }
 
+  /**
+   * @example
+   * ```typescript
+   * const wallet = new ZeroXIOWallet({
+   *   appName: 'My DApp',
+   *   requiredPermissions: ['accounts', 'public_transactions'],
+   * });
+   * try {
+   *   await wallet.initialize();
+   * } catch (error) {
+   *   if (error instanceof ZeroXIOWalletError && error.code === ErrorCode.EXTENSION_NOT_FOUND) {
+   *     console.log('No 0xio wallet');
+   *   }
+   * }
+   * ```
+   */
   async initialize(): Promise<boolean> {
     if (this.isInitialized) {
       return true;
@@ -354,12 +370,30 @@ export class ZeroXIOWallet extends EventEmitter {
    * The injected wallet, 0xio Desktop's presence and the next step, before any click and without
    * `initialize()`. Never shows a browser prompt.
    * @since 2.12.0
+   * @example
+   * ```typescript
+   * const found = await wallet.detect();
+   * if (found.next === 'open-in-app' && found.openInAppUrl) {
+   *   console.log(found.openInAppUrl);
+   * } else if (found.next === 'install') {
+   *   console.log('No 0xio wallet');
+   * }
+   * ```
    */
   detect(): Promise<DetectResult> {
     return detectWallet({ detectTimeoutMs: this.config.detectTimeoutMs, desktop: this.desktopAllowed() });
   }
 
-  /** A request id to store before a call. @since 2.12.0 */
+  /**
+   * A request id to store before a call.
+   * @since 2.12.0
+   * @example
+   * ```typescript
+   * const requestId = wallet.newRequestId();
+   * localStorage.setItem('send:mainnet:oct1...', requestId);
+   * await wallet.sendTransaction({ to: 'oct1...', amountOct: '1' }, { requestId });
+   * ```
+   */
   newRequestId(): string {
     return newRequestId();
   }
@@ -377,6 +411,14 @@ export class ZeroXIOWallet extends EventEmitter {
    * Where a request stands. Protocol 1 wallets keep no record, so the SDK answers from this page's
    * own, which a reload loses.
    * @since 2.12.0
+   * @example
+   * ```typescript
+   * const stored = localStorage.getItem('send:mainnet:oct1...');
+   * if (stored) {
+   *   const status = await wallet.requestStatus(stored);
+   *   if (status.status === 'submitted') await wallet.waitForRequest(stored);
+   * }
+   * ```
    */
   async requestStatus(requestId: string): Promise<RequestStatus> {
     this.ensureInitialized();
@@ -400,6 +442,21 @@ export class ZeroXIOWallet extends EventEmitter {
    * whatever the outcome.
    * @throws ZeroXIOWalletError with code STATUS_UNKNOWN when `timeoutMs` (default 10 minutes) runs out
    * @since 2.12.0
+   * @example
+   * ```typescript
+   * const requestId = wallet.newRequestId();
+   * try {
+   *   await wallet.sendTransaction({ to: 'oct1...', amountOct: '1' }, { requestId });
+   * } catch (error) {
+   *   if (
+   *     error instanceof ZeroXIOWalletError &&
+   *     (error.code === ErrorCode.STATUS_UNKNOWN || error.code === ErrorCode.NETWORK_ERROR)
+   *   ) {
+   *     const final = await wallet.waitForRequest(requestId, { onStatus: (s) => console.log(s.status) });
+   *     console.log(final.status, final.hash);
+   *   }
+   * }
+   * ```
    */
   async waitForRequest(requestId: string, options: WaitForRequestOptions = {}): Promise<RequestStatus> {
     const current = await this.requestStatus(requestId);
@@ -432,6 +489,13 @@ export class ZeroXIOWallet extends EventEmitter {
     return { requestId: rec.status.requestId, method: rec.status.method ?? '', status: rec.status.status };
   }
 
+  /**
+   * @example
+   * ```typescript
+   * const { address, networkInfo, canSign } = await wallet.connect();
+   * console.log(address, networkInfo.id, canSign);
+   * ```
+   */
   async connect(options: ConnectOptions & ReviewOptions = {}): Promise<ConnectEvent> {
     this.ensureInitialized();
     await this.ensureTransportForConnect();
@@ -628,6 +692,11 @@ export class ZeroXIOWallet extends EventEmitter {
   /**
    * The wallet asks the user first; refused while another review of this page waits.
    * @throws ZeroXIOWalletError with code USER_REJECTED when the user declines
+   * @example
+   * ```typescript
+   * const { switched } = await wallet.switchNetwork('devnet');
+   * if (switched) console.log(wallet.getNetworkId());
+   * ```
    */
   async switchNetwork(networkId: string, options?: ReviewOptions): Promise<{ network: string; switched: boolean }> {
     this.ensureConnected();
@@ -657,6 +726,13 @@ export class ZeroXIOWallet extends EventEmitter {
     return this.connectionInfo.networkInfo?.id || null;
   }
 
+  /**
+   * @example
+   * ```typescript
+   * await wallet.connect();
+   * const address = wallet.getAddress();
+   * ```
+   */
   getAddress(): string | null {
     return this.connectionInfo.address || null;
   }
@@ -665,6 +741,11 @@ export class ZeroXIOWallet extends EventEmitter {
    * `false` is a watch-only wallet; `undefined` when not connected or not reported, and a missing
    * public key then hints at watch-only.
    * @since 2.10.0
+   * @example
+   * ```typescript
+   * const canSign = wallet.canSign() ?? !!wallet.getConnectionInfo().publicKey;
+   * if (!canSign) console.log('Watch-only');
+   * ```
    */
   canSign(): boolean | undefined {
     return this.connectionInfo.isConnected ? this.connectionInfo.canSign : undefined;
@@ -683,6 +764,14 @@ export class ZeroXIOWallet extends EventEmitter {
     return publicKey;
   }
 
+  /**
+   * In OCT, for display.
+   * @example
+   * ```typescript
+   * const balance = await wallet.getBalance(true);
+   * console.log(balance.public, balance.currency);
+   * ```
+   */
   async getBalance(forceRefresh = false): Promise<Balance> {
     this.ensureConnected();
 
@@ -782,6 +871,17 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
+  /**
+   * @example
+   * ```typescript
+   * const requestId = wallet.newRequestId();
+   * const result = await wallet.sendTransaction(
+   *   { to: 'oct1...', amountOct: '1.5' },
+   *   { requestId, wait: 'confirmed', onStatus: (s) => console.log(s.status) }
+   * );
+   * console.log(result.hash, result.requestStatus);
+   * ```
+   */
   async sendTransaction(txData: TransactionData, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
@@ -865,7 +965,17 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /** A state changing contract call, reviewed and signed in the wallet. */
+  /**
+   * A state changing contract call, reviewed and signed in the wallet.
+   * @example
+   * ```typescript
+   * const result = await wallet.callContract(
+   *   { contract: 'oct1...', method: 'deposit', params: [], amountOct: '10' },
+   *   { requestId: wallet.newRequestId(), wait: 'confirmed' }
+   * );
+   * console.log(result.receipt?.events);
+   * ```
+   */
   async callContract(callData: ContractCallData, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 
@@ -986,7 +1096,17 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /** Read only; no review. */
+  /**
+   * Read only; no review.
+   * @example
+   * ```typescript
+   * const supply = await wallet.contractCallView({
+   *   contract: 'oct1...',
+   *   method: 'total_supply',
+   *   params: [],
+   * });
+   * ```
+   */
   async contractCallView(viewData: ContractViewCallData): Promise<any> {
     this.ensureInitialized();
 
@@ -1163,7 +1283,18 @@ export class ZeroXIOWallet extends EventEmitter {
     }
   }
 
-  /** Needs the 'private_transfers' permission; proofs run in the wallet after the review. @since 2.6.0 */
+  /**
+   * Needs the 'private_transfers' permission; proofs run in the wallet after the review.
+   * @since 2.6.0
+   * @example
+   * ```typescript
+   * const result = await wallet.sendPrivateTransfer(
+   *   { to: 'oct1...', amount: '2.5' },
+   *   { requestId: wallet.newRequestId(), onStatus: (s) => console.log(s.status) }
+   * );
+   * console.log(result.hash);
+   * ```
+   */
   async sendPrivateTransfer(transferData: PrivateTransferData, options?: WriteOptions): Promise<TransactionResult & WriteOutcome> {
     this.ensureConnected();
 

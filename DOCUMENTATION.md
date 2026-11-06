@@ -101,6 +101,8 @@ Waits: reviews and proofs up to ten minutes, reads one minute; a review call tha
 npm install @0xio/sdk
 ```
 
+Coding assistants: follow [AGENTS.md](AGENTS.md), shipped at `node_modules/@0xio/sdk/AGENTS.md`. A working starter: `npm create @0xio/dapp`.
+
 ### Yarn
 
 ```bash
@@ -152,7 +154,7 @@ console.log('Signature:', signature);
 // 6. Send transaction
 const result = await wallet.sendTransaction({
   to: 'oct1recipient...',
-  amount: 10.5,
+  amountOct: '10.5',
   message: 'Payment for services'
 });
 console.log('Transaction hash:', result.txHash);
@@ -233,7 +235,7 @@ wallet.on('networkChanged', (event) => {
 try {
   const result = await wallet.sendTransaction({
     to: 'oct1...',
-    amount: 100,
+    amountOct: '100',
     message: 'Invoice #123'
   });
 
@@ -570,7 +572,7 @@ Send a public transaction.
 ```typescript
 const result = await wallet.sendTransaction({
   to: 'oct1recipient...',
-  amount: 100.5,
+  amountOct: '100.5',
   message: 'Payment for invoice #123',
   feeLevel: 3 // 1 = standard, 3 = priority
 });
@@ -1295,13 +1297,13 @@ const wallet = new ZeroXIOWallet({
 // User can configure custom network in wallet extension
 ```
 
-### Transaction with Custom Fee
+### Transaction with Priority Fee
 
 ```typescript
 const result = await wallet.sendTransaction({
   to: 'oct1...',
-  amount: 100,
-  customFee: 0.001 // Override default fee
+  amountOct: '100',
+  feeLevel: 3 // 1 = standard, 3 = priority
 });
 ```
 
@@ -1309,9 +1311,9 @@ const result = await wallet.sendTransaction({
 
 ```typescript
 const recipients = [
-  { to: 'oct1...', amount: 10 },
-  { to: 'oct2...', amount: 20 },
-  { to: 'oct3...', amount: 30 }
+  { to: 'oct1...', amountOct: '10' },
+  { to: 'oct2...', amountOct: '20' },
+  { to: 'oct3...', amountOct: '30' }
 ];
 
 for (const recipient of recipients) {

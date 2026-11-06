@@ -1,10 +1,12 @@
 # 0xio Wallet SDK
 
-**Version 2.12.0**
+**Version 2.12.1**
 
 The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, with 0xio Desktop alone (no extension), inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md). The full API is in [DOCUMENTATION.md](DOCUMENTATION.md).
+
+Coding assistants: follow [AGENTS.md](AGENTS.md), shipped at `node_modules/@0xio/sdk/AGENTS.md`. A working starter: `npm create @0xio/dapp`.
 
 ## Install
 
