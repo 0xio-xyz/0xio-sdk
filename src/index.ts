@@ -112,6 +112,9 @@ export type {
 
 export { ErrorCode, ZeroXIOWalletError } from './types';
 
+export { ONS_SUFFIX, ONS_LIST_URL, onsContract, normalizeOnsName, isOnsName } from './supports/ons';
+export type { ResolvedName } from './supports/ons';
+
 export {
   NETWORKS,
   DEFAULT_NETWORK_ID,

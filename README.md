@@ -1,6 +1,6 @@
 # 0xio Wallet SDK
 
-**Version 2.12.1**
+**Version 2.12.2**
 
 The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, with 0xio Desktop alone (no extension), inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
@@ -86,6 +86,8 @@ Balance and network: `getBalance(forceRefresh?)`, `getNetworkInfo()`, `getNetwor
 Transactions: `sendTransaction(data)`, `signTransaction(data)` then `submitTransaction(signedTx)`, `getTransactionHistory(page?, limit?)`.
 
 Contracts: `callContract(data)` (signed, approval shown), `deployContract({ bytecode, params?, ou? })` (approval shows the code size, the contract address from the node and the fee; returns `{ txHash, contractAddress }`), `contractCallView(data)` (read-only, no approval), `getContractStorage(contract, key)`, `sendContractTransactionSequence(data)` (several calls under one approval; every step is listed in it).
+
+Names (Octra Name System, devnet): `lookupAddress(address?)` gives the primary name of an address (`0xio.oct`) or `null`, for a connected button that shows the name in place of the address; `resolveName(name)` gives what a name points to (`{ kind, wallet, circle }`). Both are read only and need the `contract_views` permission. The name contract is read from the token-lists name list and checked on chain, not built in.
 
 Request lifecycle (2.12.0): `detect()`, `walletInfo`, `newRequestId()`, `requestStatus(id)`, `waitForRequest(id, options?)`, `cancelRequest(id)`, `pendingRequest()`, `openInAppUrl(url?)`; every review call takes `{ requestId, timeoutMs, onStatus }` and every write also `wait: 'submitted' | 'confirmed'`. See Request lifecycle below.
 

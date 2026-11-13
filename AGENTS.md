@@ -119,6 +119,7 @@ try {
 - The receipt (`wait: 'confirmed'`) has `success`, `events` and `error`, but no return value. Read results from events or with a view call after `confirmed`. `receipt` is `null` with `receiptUnavailable` when the node gives none.
 - `contractCallView({ contract, method, params, caller? })` is read only, opens no review and needs no connection. It resolves with the wallet's answer (`any`).
 - `getContractStorage(contract, key)` reads one storage key.
+- `lookupAddress(address?)` resolves with the address's primary name (`0xio.oct`) or `null`; `resolveName(name)` with `{ name, kind: 'wallet' | 'circle' | 'none', wallet, circle }` or `null` where the network has no name service. Display the name, send to the address, and resolve again right before sending. Ask for `contract_views` at connect. The contract comes from the token-lists name list (`ONS_LIST_URL`) and is checked on chain; never pass one in from a page.
 - `deployContract({ bytecode, params?, ou? }, WriteOptions)` resolves with `{ txHash, contractAddress }`. `DEPLOY_CHANGED` means nothing was sent.
 
 ## Private transfers

@@ -2,6 +2,16 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.12.2] - 2026-11-13
+
+### Added
+
+- `lookupAddress(address?, networkId?)`: primary name of an address in the Octra Name System (`0xio.oct`), or `null`
+- `resolveName(name, networkId?)`: what a name points to (`wallet`, `circle` or `none`), or `null` where there is no name service
+- `onsContract(networkId)` (async), `normalizeOnsName`, `isOnsName`, `ONS_SUFFIX`, `ONS_LIST_URL`, type `ResolvedName`
+- Name contract read per network from the token-lists name list, kept ten minutes, last list used when the source cannot be reached
+- Name contract checked on chain before use (`get_contract_info`: name, symbol, interface version); replies that cannot be read reject, never guessed
+
 ## [2.12.1] - 2026-11-07
 
 ### Added

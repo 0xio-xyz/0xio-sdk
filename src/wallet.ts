@@ -57,6 +57,14 @@ import {
   DetectResult,
   ContractReceipt
 } from './types';
+import {
+  isNameService,
+  normalizeOnsName,
+  onsContract,
+  parsePrimaryName,
+  parseResolved,
+  type ResolvedName,
+} from './supports/ons';
 import { getNetworkConfig, createDefaultBalance, validateBalance, validateNetworkInfo } from './config';
 import { createLogger, isValidAddress, isValidAmount, deriveOctraAddress, octToMicro } from './utils';
 import { toWalletPermissions, withLegacyAliases } from './permissions';
@@ -171,6 +179,7 @@ export class ZeroXIOWallet extends EventEmitter {
   private isInitialized = false;
   private _initPromise: Promise<boolean> | null = null;
   private _sessionVersion = 0;
+  private nameServices?: Map<string, { ok: boolean; at: number }>;
   private logger: ReturnType<typeof createLogger>;
   private _walletInfo: WalletInfo | null = null;
   private _requests: RequestTracker | undefined;
@@ -1403,6 +1412,75 @@ export class ZeroXIOWallet extends EventEmitter {
     required_permissions?: Record<string, string[]>;
   }> {
     return this.communicator.sendRequest('get_private_capabilities');
+  }
+
+  private async nameService(networkId?: string): Promise<string | null> {
+    const contract = await onsContract(networkId ?? this.connectionInfo.networkInfo?.id ?? '');
+    if (!contract) return null;
+    const checked = (this.nameServices ??= new Map());
+    const known = checked.get(contract);
+    if (known && Date.now() - known.at < 10 * 60_000) return known.ok ? contract : null;
+    const ok = isNameService(
+      await this.contractCallView({ contract, method: 'get_contract_info', params: [], caller: contract }),
+    );
+    if (ok === undefined) {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Name service reply could not be read');
+    }
+    checked.set(contract, { ok, at: Date.now() });
+    return ok ? contract : null;
+  }
+
+  /**
+   * The primary name of an address (`0xio.oct`), or null when it has none or the network has no
+   * name service. Display only. Defaults to the connected address and network.
+   * @since 2.12.2
+   * @example
+   * ```typescript
+   * const { address } = await wallet.connect({ permissions: ['read_balance', 'contract_views'] });
+   * button.textContent = (await wallet.lookupAddress()) ?? shortAddress(address);
+   * ```
+   */
+  async lookupAddress(address?: string, networkId?: string): Promise<string | null> {
+    this.ensureInitialized();
+    const who = address ?? this.connectionInfo.address;
+    if (!who || !isValidAddress(who)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Invalid address');
+    }
+    const contract = await this.nameService(networkId);
+    if (!contract) return null;
+    const reply = await this.contractCallView({ contract, method: 'primary_of', params: [who], caller: who });
+    const name = parsePrimaryName(reply);
+    if (name === undefined) {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Name service reply could not be read');
+    }
+    return name;
+  }
+
+  /**
+   * What a name points to, or null when the network has no name service. Send to `wallet` (the
+   * address), never to the name, and resolve again right before sending: a name can be pointed
+   * elsewhere or sold at any time.
+   * @since 2.12.2
+   * @example
+   * ```typescript
+   * const hit = await wallet.resolveName('0xio.oct');
+   * if (hit?.kind === 'wallet') await wallet.sendTransaction({ to: hit.wallet, amountOct: '1' });
+   * ```
+   */
+  async resolveName(name: string, networkId?: string): Promise<ResolvedName | null> {
+    this.ensureInitialized();
+    const bare = normalizeOnsName(name);
+    if (bare === null) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_PARAMS, 'Not a valid name');
+    }
+    const contract = await this.nameService(networkId);
+    if (!contract) return null;
+    const reply = await this.contractCallView({ contract, method: 'resolve', params: [bare], caller: contract });
+    const resolved = parseResolved(bare, reply);
+    if (!resolved) {
+      throw new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'Name service reply could not be read');
+    }
+    return resolved;
   }
 
   /** Read only; no review. @since 2.8.0 */

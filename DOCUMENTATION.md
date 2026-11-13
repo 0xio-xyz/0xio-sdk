@@ -754,6 +754,47 @@ interface ContractViewCallData {
 
 ---
 
+#### `lookupAddress(address?: string, networkId?: string): Promise<string | null>`
+
+The primary name of an address in the Octra Name System, such as `0xio.oct`. Resolves with `null` when the address has no primary name, or when the network has no usable name service (mainnet today, or the name list cannot be read and none was read before). Defaults to the connected address and network. Read only: no review, no fee. The dapp needs the `contract_views` permission.
+
+```typescript
+const { address } = await wallet.connect({ permissions: ['read_balance', 'contract_views'] });
+
+const name = await wallet.lookupAddress();
+button.textContent = name ?? `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+wallet.on('accountChanged', async () => {
+  button.textContent = (await wallet.lookupAddress()) ?? 'Connected';
+});
+```
+
+**Notes:**
+- A name is for display. Keep the address reachable, and never treat the name as proof of who is connected.
+- Look it up again when the account or the network changes, and do not keep it longer than about 10 minutes: a name can be transferred or pointed elsewhere.
+- The name service already checks that the name is active, is held by that address and points back to it.
+
+---
+
+#### `resolveName(name: string, networkId?: string): Promise<ResolvedName | null>`
+
+What a name points to. `kind` is `wallet` (with `wallet` set to the address), `circle` (with `circle` set to the Circle id) or `none`. Resolves with `null` when the network has no name service. Rejects with `INVALID_PARAMS` for text that is not a valid name.
+
+```typescript
+const hit = await wallet.resolveName('0xio.oct');
+if (hit?.kind === 'wallet') {
+  await wallet.sendTransaction({ to: hit.wallet, amountOct: '1' });
+}
+```
+
+**Notes:**
+- Send to the address, never to the name, and show the address to the user before they confirm.
+- Resolve again right before sending. If the address changed since the user typed the name, stop and show the new one.
+- The name service contract is not built into the SDK. It is read per network from the name list in the token-lists repo (`ONS_LIST_URL`, `await onsContract(networkId)`), kept for ten minutes, and the contract must then answer `get_contract_info` as the Octra Name System with an interface version this SDK supports. A contract that does not gives `null`, as a network with no name service does. Never take the contract from a page or a link. A page with a Content Security Policy needs `https://raw.githubusercontent.com` in `connect-src`.
+- `normalizeOnsName(text)` gives the bare name or `null`, and `isOnsName(text)` is true only for text ending in `.oct` that passes the name rules.
+
+---
+
 #### `getContractStorage(contract: string, key: string): Promise<string | null>`
 
 Read a single key from contract storage. Does **not** require wallet unlock or user approval.
