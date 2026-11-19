@@ -191,6 +191,22 @@ describe('protocol 2 wallet', () => {
     expect(foreign.reviewsOpened + pending.reviewsOpened).toBe(2);
   });
 
+  it.each([
+    ['spent', ErrorCode.CLAIM_OUTPUT_SPENT],
+    ['unreadable', ErrorCode.CLAIM_OUTPUT_UNREADABLE],
+    ['conflict', ErrorCode.CLAIM_CONFLICT],
+    ['capacity', ErrorCode.RATE_LIMIT_EXCEEDED],
+    ['network', ErrorCode.NETWORK_ERROR],
+  ] as const)('keeps the claim refusal %s as the wallet sent it', async (claimOutput, code) => {
+    const wallet = new ReferenceWallet({ claimOutput });
+    const { w } = await sdkFor(wallet);
+    const err = await w.claimPrivateTransfer('42').catch((e) => e);
+    expect(err).toBeInstanceOf(ZeroXIOWalletError);
+    expect(err.code).toBe(code);
+    expect(err.requestId).toMatch(/^[0-9a-f]{32}$/);
+    expect(wallet.signatures).toBe(0);
+  });
+
   it('refuses registerPrivateViewKey for another address before any review', async () => {
     const wallet = new ReferenceWallet();
     const { w } = await sdkFor(wallet);

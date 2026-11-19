@@ -206,7 +206,10 @@ export function createErrorMessage(code: ErrorCode, context?: string): string {
     [ErrorCode.REQUEST_ID_REUSED]: 'This request id belongs to another request; make a new id',
     [ErrorCode.EXECUTION_FAILED]: 'The chain rejected or dropped the transaction',
     [ErrorCode.PVAC_KEY_MISMATCH]: 'Another private key is registered for this account; use the wallet that registered it',
-    [ErrorCode.REGISTRATION_PENDING]: 'The registration is waiting for confirmation; try again once it is confirmed'
+    [ErrorCode.REGISTRATION_PENDING]: 'The registration is waiting for confirmation; try again once it is confirmed',
+    [ErrorCode.CLAIM_OUTPUT_SPENT]: 'This transfer is already claimed; nothing was sent',
+    [ErrorCode.CLAIM_OUTPUT_UNREADABLE]: 'The wallet could not read this transfer; nothing was sent, try again later',
+    [ErrorCode.CLAIM_CONFLICT]: 'An earlier claim of this transfer is not on the node yet; nothing was sent, try again in a few minutes'
   };
 
   const baseMessage = baseMessages[code] || 'Unknown error';

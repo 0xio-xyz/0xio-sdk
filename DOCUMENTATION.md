@@ -995,6 +995,18 @@ const result = await wallet.claimPrivateTransfer('transfer_123');
 console.log('Claimed:', result.amount, 'OCT');
 ```
 
+The wallet reads the output before proving and refuses with nothing sent:
+
+| Case | Code | The dApp should |
+|---|---|---|
+| The output reads spent | `CLAIM_OUTPUT_SPENT` | Stop; it is claimed |
+| The output state cannot be read (read failed, field missing) | `CLAIM_OUTPUT_UNREADABLE` | Retry later |
+| A confirmed claim is not on the node and the output reads unspent (blocked up to 10 minutes) | `CLAIM_CONFLICT` | Wait, then retry |
+| Node capacity after the retry window | `RATE_LIMIT_EXCEEDED` | Retry later |
+| Network fault after the retry window | `NETWORK_ERROR` | The result may be unclear; follow `error.requestId`, never resend |
+
+A claim of an output whose claim is pending or confirmed is not an error: the wallet returns the earlier hash. When an earlier claim was dropped or its status is unknown, the wallet resends the same signed claim (same nonce and hash) only once the output reads unspent again, the nonce is still the next one and the fee equals the reviewed fee; otherwise it builds a fresh claim. An unclear claim is released after ten minutes.
+
 ---
 
 ### Event Methods
@@ -1786,7 +1798,10 @@ enum ErrorCode {
   REQUEST_ID_REUSED = 'REQUEST_ID_REUSED',      // the id belongs to another request (2.12.0)
   EXECUTION_FAILED = 'EXECUTION_FAILED',        // wait: 'confirmed' and the chain rejected or dropped it (2.12.0)
   PVAC_KEY_MISMATCH = 'PVAC_KEY_MISMATCH',      // registerPrivateViewKey: another key is registered for the account (2.12.0)
-  REGISTRATION_PENDING = 'REGISTRATION_PENDING' // registerPrivateViewKey: this wallet's registration is unconfirmed (2.12.0)
+  REGISTRATION_PENDING = 'REGISTRATION_PENDING', // registerPrivateViewKey: this wallet's registration is unconfirmed (2.12.0)
+  CLAIM_OUTPUT_SPENT = 'CLAIM_OUTPUT_SPENT',    // claimPrivateTransfer: the output is spent (2.13.0)
+  CLAIM_OUTPUT_UNREADABLE = 'CLAIM_OUTPUT_UNREADABLE', // claimPrivateTransfer: the output state could not be read (2.13.0)
+  CLAIM_CONFLICT = 'CLAIM_CONFLICT'             // claimPrivateTransfer: a confirmed claim is missing on the node (2.13.0)
 }
 ```
 

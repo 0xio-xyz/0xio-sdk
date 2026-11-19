@@ -283,7 +283,13 @@ export enum ErrorCode {
   /** Another PVAC key is registered for this account; a key switch could strand its encrypted balance. @since 2.12.0 */
   PVAC_KEY_MISMATCH = 'PVAC_KEY_MISMATCH',
   /** This wallet's registration is submitted and not yet confirmed. @since 2.12.0 */
-  REGISTRATION_PENDING = 'REGISTRATION_PENDING'
+  REGISTRATION_PENDING = 'REGISTRATION_PENDING',
+  /** The claimed output is already spent; stop, it is claimed. Nothing was sent. @since 2.13.0 */
+  CLAIM_OUTPUT_SPENT = 'CLAIM_OUTPUT_SPENT',
+  /** The wallet could not read the output's state; retry later. Nothing was sent. @since 2.13.0 */
+  CLAIM_OUTPUT_UNREADABLE = 'CLAIM_OUTPUT_UNREADABLE',
+  /** A confirmed claim of this output is missing on the node while the output reads unspent; wait up to 10 minutes, then retry. Nothing was sent. @since 2.13.0 */
+  CLAIM_CONFLICT = 'CLAIM_CONFLICT'
 }
 
 export class ZeroXIOWalletError extends Error {

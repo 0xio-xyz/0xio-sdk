@@ -28,7 +28,16 @@ export interface ReferenceWalletOptions {
   balanceRaw?: string;
   foreignKey?: boolean;
   pendingRegistration?: boolean;
+  claimOutput?: 'spent' | 'unreadable' | 'conflict' | 'capacity' | 'network';
 }
+
+const CLAIM_REFUSALS: Record<NonNullable<ReferenceWalletOptions['claimOutput']>, [string, string]> = {
+  spent: ['CLAIM_OUTPUT_SPENT', 'Claim output is spent; nothing was sent'],
+  unreadable: ['CLAIM_OUTPUT_UNREADABLE', 'Claim output state is unavailable; nothing was sent'],
+  conflict: ['CLAIM_CONFLICT', 'Confirmed claim conflicts with current output state; nothing was sent'],
+  capacity: ['RATE_LIMIT_EXCEEDED', 'Rpc capacity reached; nothing was sent'],
+  network: ['NETWORK_ERROR', 'Network unreachable'],
+};
 
 const SIGNING_METHODS = new Set([...TRANSACTION_METHODS, 'signMessage', 'sign_transaction']);
 const TX_METHODS = new Set(TRANSACTION_METHODS);
@@ -396,6 +405,10 @@ export class ReferenceWallet {
       if (this.balanceRaw < this.keySwitchFeeRaw) {
         return this.fail(req, 'INSUFFICIENT_BALANCE', 'The balance does not cover the registration fee', rid);
       }
+    }
+    if (req.method === 'claim_private_transfer' && this.options.claimOutput) {
+      const [code, message] = CLAIM_REFUSALS[this.options.claimOutput];
+      return this.fail(req, code, message, rid);
     }
     const open = [...this.records.values()].filter((r) => r.origin === page.origin && !isFinalStatus(r.status)).length;
     if (rid && open >= (this.options.openRequestCap ?? LIFECYCLE_LIMITS.openPerOrigin)) {

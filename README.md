@@ -1,6 +1,6 @@
 # 0xio Wallet SDK
 
-**Version 2.12.2**
+**Version 2.13.0**
 
 The official TypeScript SDK for building dapps on the 0xio Wallet and the Octra Network. It works with the browser extension, with 0xio Desktop alone (no extension), inside the 0xio Desktop browser and inside the 0xio App, and picks the right transport on its own.
 
@@ -185,6 +185,8 @@ try {
   }
 }
 ```
+
+`claimPrivateTransfer` adds three codes, all with nothing sent: `CLAIM_OUTPUT_SPENT` (already claimed; stop), `CLAIM_OUTPUT_UNREADABLE` (the wallet could not read the output; retry later) and `CLAIM_CONFLICT` (an earlier confirmed claim is missing on the node while the output reads unspent; wait up to ten minutes, then retry). It also keeps `RATE_LIMIT_EXCEEDED` (node capacity; retry later) and `NETWORK_ERROR` (the result may be unclear; follow `error.requestId`, never resend). Claiming an output again while its claim is pending or confirmed returns the earlier hash.
 
 `deployContract` adds two codes: `DEPLOY_CHANGED` when another transaction moved the nonce after the review, so the contract address would differ (nothing is sent), and `DEPLOY_FAILED` when the node refuses the deploy.
 

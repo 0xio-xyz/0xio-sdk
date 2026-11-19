@@ -536,6 +536,9 @@ describe('error codes', () => {
     ['AUTH_REQUIRED', ErrorCode.NETWORK_ERROR],
     ['PAIRING_REQUIRED', ErrorCode.NETWORK_ERROR],
     ['AUTH_FAILED', ErrorCode.NETWORK_ERROR],
+    ['CLAIM_OUTPUT_SPENT', ErrorCode.CLAIM_OUTPUT_SPENT],
+    ['CLAIM_OUTPUT_UNREADABLE', ErrorCode.CLAIM_OUTPUT_UNREADABLE],
+    ['CLAIM_CONFLICT', ErrorCode.CLAIM_CONFLICT],
     ['lower-case', ErrorCode.UNKNOWN_ERROR],
     [42, ErrorCode.UNKNOWN_ERROR],
   ])('%s -> %s', (code, expected) => {

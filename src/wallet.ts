@@ -157,7 +157,12 @@ const KEPT_CODES = new Set<ErrorCode>([
   ErrorCode.EXECUTION_FAILED,
   ErrorCode.PVAC_KEY_MISMATCH,
   ErrorCode.REGISTRATION_PENDING,
+  ErrorCode.CLAIM_OUTPUT_SPENT,
+  ErrorCode.CLAIM_OUTPUT_UNREADABLE,
+  ErrorCode.CLAIM_CONFLICT,
 ]);
+
+const CLAIM_KEPT_CODES = new Set<ErrorCode>([ErrorCode.RATE_LIMIT_EXCEEDED, ErrorCode.NETWORK_ERROR]);
 
 function rethrowWalletRefusal(error: unknown): void {
   if (error instanceof ZeroXIOWalletError && KEPT_CODES.has(error.code)) throw error;
@@ -1382,6 +1387,7 @@ export class ZeroXIOWallet extends EventEmitter {
       return result;
     } catch (error) {
       rethrowWalletRefusal(error);
+      if (error instanceof ZeroXIOWalletError && CLAIM_KEPT_CODES.has(error.code)) throw error;
       throw new ZeroXIOWalletError(
         ErrorCode.TRANSACTION_FAILED,
         'Failed to claim private transfer',

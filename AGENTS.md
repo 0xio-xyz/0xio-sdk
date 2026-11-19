@@ -170,6 +170,9 @@ Every failure is a `ZeroXIOWalletError` with `code` (an `ErrorCode`), `message`,
 | `REQUEST_ID_REUSED` | Make a new id for a new request |
 | `NETWORK_CHANGED`, `WALLET_CHANGED`, `NOT_AVAILABLE` | Read state again; the user switched network or wallet |
 | `PERMISSION_DENIED` | Declare and request the scope |
+| `CLAIM_OUTPUT_SPENT` | Stop; the transfer is claimed |
+| `CLAIM_OUTPUT_UNREADABLE` | Retry the claim later |
+| `CLAIM_CONFLICT` | Wait up to 10 minutes, then retry the claim |
 
 ## EVM
 

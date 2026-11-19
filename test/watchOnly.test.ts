@@ -149,7 +149,7 @@ describe('WATCH_ONLY', () => {
   });
 
   it('other failures keep their old wrapping', async () => {
-    const { w } = wallet(() => new ZeroXIOWalletError(ErrorCode.NETWORK_ERROR, 'down'), true);
+    const { w } = wallet(() => new ZeroXIOWalletError(ErrorCode.PRIVATE_PROOF_FAILED, 'proof'), true);
     await expect(w.claimPrivateTransfer('t1')).rejects.toMatchObject({
       code: ErrorCode.TRANSACTION_FAILED,
     });

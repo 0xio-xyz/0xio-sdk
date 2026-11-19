@@ -2,6 +2,17 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.13.0] - 2026-11-19
+
+### Added
+
+- `ErrorCode.CLAIM_OUTPUT_SPENT`, `CLAIM_OUTPUT_UNREADABLE` and `CLAIM_CONFLICT` for `claimPrivateTransfer`; nothing was sent
+
+### Changed
+
+- `claimPrivateTransfer` keeps `RATE_LIMIT_EXCEEDED` and `NETWORK_ERROR` from the wallet instead of `TRANSACTION_FAILED`
+- Reference wallet: `claimOutput` option answers claims with the new codes
+
 ## [2.12.2] - 2026-11-13
 
 ### Added
