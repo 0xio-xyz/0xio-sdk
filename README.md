@@ -49,7 +49,7 @@ console.log(result.hash);
 
 ## Amounts and units
 
-The wallet counts in raw micro-OCT: one OCT is 1000000 units. Every raw field is passed to the wallet exactly as you give it, so existing integrations keep working. Where you would rather write OCT, use the OCT field and the SDK converts it with exact decimal arithmetic.
+The wallet counts in raw micro-OCT: one OCT is 1000000 units. Every raw field is passed to the wallet exactly as you give it, so existing integrations keep working. A raw field must be whole units: a string of digits or an integer; anything else is refused before the wallet is asked. Where you would rather write OCT, use the OCT field and the SDK converts it with exact decimal arithmetic.
 
 | Method | Raw field (sent as is) | OCT field (converted by the SDK) |
 |--------|------------------------|----------------------------------|

@@ -12,13 +12,23 @@ export function isValidAddress(address: string): boolean {
 /** Strings avoid number precision loss for very large values. */
 export function isValidAmount(amount: string | number): boolean {
   if (typeof amount === 'string') {
-    const n = parseFloat(amount);
-    return !isNaN(n) && n > 0 && Number.isFinite(n);
+    if (!/^\d+(\.\d+)?$/.test(amount)) return false;
+    const n = Number(amount);
+    return n > 0 && Number.isFinite(n);
   }
   return typeof amount === 'number' &&
     amount > 0 &&
     Number.isFinite(amount) &&
     amount <= Number.MAX_SAFE_INTEGER;
+}
+
+/** Raw micro-OCT is whole units: digits only, or a safe integer. */
+export function isRawMicroAmount(amount: unknown, allowZero = false): boolean {
+  if (typeof amount === 'number') {
+    return Number.isSafeInteger(amount) && (allowZero ? amount >= 0 : amount > 0);
+  }
+  if (typeof amount !== 'string' || !/^\d{1,30}$/.test(amount)) return false;
+  return allowZero || BigInt(amount) > BigInt(0);
 }
 
 export function isValidMessage(message: string): boolean {
@@ -79,8 +89,24 @@ export async function deriveOctraAddress(publicKeyBase64: string): Promise<strin
   return 'oct' + _base58Encode(new Uint8Array(hashBuf));
 }
 
+/** True when bound, false when not bound or the key is malformed, null when the check cannot run here. */
+export async function verifyAddressBinding(address: string, publicKeyBase64: unknown): Promise<boolean | null> {
+  if (typeof publicKeyBase64 !== 'string' || !publicKeyBase64) return false;
+  if (typeof atob !== 'function' || typeof crypto === 'undefined' || !crypto.subtle) return null;
+  try {
+    atob(publicKeyBase64);
+  } catch {
+    return false;
+  }
+  try {
+    return (await deriveOctraAddress(publicKeyBase64)) === address;
+  } catch {
+    return null;
+  }
+}
+
 export function formatOCT(amount: number | string, decimals = 6): string {
-  const n = typeof amount === 'string' ? parseFloat(amount) : amount;
+  const n = typeof amount === 'string' ? Number(amount) : amount;
   if (!isValidAmount(n)) {
     return '0';
   }

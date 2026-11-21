@@ -2,6 +2,20 @@
 
 All notable changes to the 0xio Wallet SDK.
 
+## [2.13.1] - 2026-11-21
+
+### Security
+
+- `connect`, `getConnectionStatus` and `accountChanged` accept only a well-formed Octra address; a malformed public key or one that does not derive to the address is refused instead of skipped
+- `accountChanged` checks the address-key binding before the connected account changes
+
+### Fixed
+
+- `getBalance` refuses a malformed balance from the wallet instead of reading its leading digits
+- `connect` returns a validated `Balance`, never the wallet's raw value
+- `isValidAmount` accepts plain decimals only: `10abc`, `10.5.2`, `1e3` and `0x10` are refused
+- Raw `amount` in `sendTransaction`, `signTransaction` and `callContract` must be whole micro-OCT (digits or a safe integer)
+
 ## [2.13.0] - 2026-11-19
 
 ### Added

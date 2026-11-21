@@ -2,7 +2,7 @@ import { ZeroXIOWallet } from '../src/wallet';
 import { ExtensionCommunicator } from '../src/communication';
 import { ErrorCode, ZeroXIOWalletError } from '../src/types';
 import type { AccountChangedEvent, ConnectEvent, ConnectionInfo } from '../src/types';
-import { createErrorMessage, createLogger } from '../src/utils';
+import { createErrorMessage, createLogger, deriveOctraAddress } from '../src/utils';
 import { createOctraProviderAdapter } from '../src/supports/octra-provider';
 
 const NETWORK = {
@@ -13,6 +13,10 @@ const NETWORK = {
   color: '#000000',
   isTestnet: false,
 };
+
+const W = 'oct' + 'W'.repeat(44);
+const A = 'oct' + 'A'.repeat(44);
+const PK_B = Buffer.alloc(32, 7).toString('base64');
 
 const WATCH_ONLY = { code: 'WATCH_ONLY', message: 'This wallet is watch-only and cannot sign.' };
 
@@ -26,7 +30,7 @@ function wallet(answer: (method: string) => unknown, connected = false) {
   Object.assign(w as any, {
     communicator: { sendRequest },
     config: { appName: 'Test', requiredPermissions: ['read_balance'] },
-    connectionInfo: connected ? { isConnected: true, address: 'octW' } : { isConnected: false },
+    connectionInfo: connected ? { isConnected: true, address: W } : { isConnected: false },
     isInitialized: true,
     listeners: new Map(),
     _sessionVersion: 0,
@@ -44,7 +48,7 @@ const events = (w: ZeroXIOWallet, type: 'connect' | 'accountChanged') => {
 describe('canSign', () => {
   it('reads false for a watch-only wallet on connect and on the connect event', async () => {
     const { w } = wallet(() => ({
-      address: 'octW',
+      address: W,
       canSign: false,
       networkInfo: NETWORK,
       permissions: ['accounts'],
@@ -59,13 +63,13 @@ describe('canSign', () => {
   });
 
   it('reads true for a wallet with a key', async () => {
-    const { w } = wallet(() => ({ address: 'octA', canSign: true, networkInfo: NETWORK }));
+    const { w } = wallet(() => ({ address: A, canSign: true, networkInfo: NETWORK }));
     await w.connect();
     expect(w.canSign()).toBe(true);
   });
 
   it('reads undefined from an older extension that does not send it', async () => {
-    const { w } = wallet(() => ({ address: 'octA', networkInfo: NETWORK }));
+    const { w } = wallet(() => ({ address: A, networkInfo: NETWORK }));
     const res = await w.connect();
     expect(res.canSign).toBeUndefined();
     expect(w.canSign()).toBeUndefined();
@@ -73,7 +77,7 @@ describe('canSign', () => {
   });
 
   it('ignores a value that is not a boolean', async () => {
-    const { w } = wallet(() => ({ address: 'octA', canSign: 'no', networkInfo: NETWORK }));
+    const { w } = wallet(() => ({ address: A, canSign: 'no', networkInfo: NETWORK }));
     await w.connect();
     expect(w.canSign()).toBeUndefined();
   });
@@ -86,7 +90,7 @@ describe('canSign', () => {
   it('comes from getConnectionStatus on a restored session', async () => {
     const { w } = wallet(() => ({
       isConnected: true,
-      address: 'octW',
+      address: W,
       canSign: false,
       networkInfo: NETWORK,
     }));
@@ -97,16 +101,19 @@ describe('canSign', () => {
     expect(w.canSign()).toBe(false);
   });
 
-  it('follows accountChanged, and reads undefined from an older payload', () => {
+  it('follows accountChanged, and reads undefined from an older payload', async () => {
     const { w } = wallet(() => null, true);
     (w as any).connectionInfo.canSign = true;
     const seen = events(w, 'accountChanged');
-    (w as any).handleAccountChanged({ address: 'octW', publicKey: undefined, canSign: false });
+    (w as any).handleAccountChanged({ address: W, publicKey: undefined, canSign: false });
     const first: AccountChangedEvent = seen[0];
-    expect(first).toMatchObject({ previousAddress: 'octW', newAddress: 'octW', canSign: false });
+    expect(first).toMatchObject({ previousAddress: W, newAddress: W, canSign: false });
     expect(w.canSign()).toBe(false);
 
-    (w as any).handleAccountChanged({ address: 'octB', publicKey: 'pkB' });
+    const B = await deriveOctraAddress(PK_B);
+    (w as any).handleAccountChanged({ address: B, publicKey: PK_B });
+    for (let i = 0; i < 50 && seen.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(seen[1].newAddress).toBe(B);
     expect(seen[1].canSign).toBeUndefined();
     expect(w.canSign()).toBeUndefined();
   });
@@ -200,13 +207,13 @@ describe('RFC-O-1 adapter', () => {
 
   it('passes the provider canSign on connect, and undefined when it has none', async () => {
     const request = jest.fn(async ({ method }: { method: string }) =>
-      method === 'octra_requestAccounts' ? ['octW'] : method === 'octra_networkInfo' ? NETWORK : []
+      method === 'octra_requestAccounts' ? [W] : method === 'octra_networkInfo' ? NETWORK : []
     );
     await withProvider({ request, canSign: false }, async () => {
       const adapter = createOctraProviderAdapter();
       const reply = new Promise<any>((resolve) => adapter.listen(resolve));
       adapter.postRequest({ id: 'r1', method: 'connect', params: {} } as any);
-      expect((await reply).data).toMatchObject({ address: 'octW', canSign: false });
+      expect((await reply).data).toMatchObject({ address: W, canSign: false });
     });
     await withProvider({ request }, async () => {
       const adapter = createOctraProviderAdapter();

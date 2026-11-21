@@ -66,7 +66,7 @@ import {
   type ResolvedName,
 } from './supports/ons';
 import { getNetworkConfig, createDefaultBalance, validateBalance, validateNetworkInfo } from './config';
-import { createLogger, isValidAddress, isValidAmount, deriveOctraAddress, octToMicro } from './utils';
+import { createLogger, isValidAddress, isValidAmount, isRawMicroAmount, verifyAddressBinding, octToMicro } from './utils';
 import { toWalletPermissions, withLegacyAliases } from './permissions';
 import { buildAuthMessage } from './signing';
 
@@ -528,20 +528,20 @@ export class ZeroXIOWallet extends EventEmitter {
         networkId: options.networkId || this.config.networkId
       }, options);
 
-      if (result.publicKey && result.address) {
-        try {
-          const derived = await deriveOctraAddress(result.publicKey);
-          if (derived !== result.address) {
-            throw new ZeroXIOWalletError(
-              ErrorCode.UNKNOWN_ERROR,
-              'Address-key binding verification failed: the reported public key does not derive to the reported address'
-            );
-          }
-        } catch (e) {
-          if (e instanceof ZeroXIOWalletError) throw e;
-          this.logger.warn('Address derivation check skipped (crypto unavailable):', e);
-        }
+      if (!isValidAddress(result.address)) {
+        throw new ZeroXIOWalletError(ErrorCode.INVALID_ADDRESS, 'Wallet did not return a valid address.');
       }
+      if (result.publicKey != null) {
+        const bound = await verifyAddressBinding(result.address, result.publicKey);
+        if (bound === false) {
+          throw new ZeroXIOWalletError(
+            ErrorCode.UNKNOWN_ERROR,
+            'Address-key binding verification failed: the reported public key does not derive to the reported address'
+          );
+        }
+        if (bound === null) this.logger.warn('Address derivation check skipped (crypto unavailable)');
+      }
+      const balance = validateBalance(result.balance) ?? createDefaultBalance();
 
       const networkInfo = validateNetworkInfo(result.networkInfo)
         ?? (result.networkId ? getNetworkConfig(result.networkId) : null);
@@ -561,7 +561,7 @@ export class ZeroXIOWallet extends EventEmitter {
         address: result.address,
         publicKey: result.publicKey,
         canSign,
-        balance: result.balance,
+        balance,
         networkInfo,
         connectedAt: Date.now(),
         permissions
@@ -571,7 +571,7 @@ export class ZeroXIOWallet extends EventEmitter {
         address: result.address,
         publicKey: result.publicKey,
         canSign,
-        balance: result.balance,
+        balance,
         networkInfo,
         permissions
       };
@@ -636,18 +636,18 @@ export class ZeroXIOWallet extends EventEmitter {
       if (this._sessionVersion !== sv) return { ...this.connectionInfo };
 
       if (result.isConnected && result.address) {
-        if (result.publicKey) {
-          try {
-            const derived = await deriveOctraAddress(result.publicKey);
-            if (derived !== result.address) {
-              this.logger.warn('Address-key binding mismatch on session restore, ignoring stale session');
-              this.connectionInfo = { isConnected: false };
-              return { ...this.connectionInfo };
-            }
-          } catch (e) {
-            this.logger.warn('Address derivation check skipped (crypto unavailable):', e);
-          }
+        const bound = !isValidAddress(result.address)
+          ? false
+          : result.publicKey != null
+            ? await verifyAddressBinding(result.address, result.publicKey)
+            : true;
+        if (this._sessionVersion !== sv) return { ...this.connectionInfo };
+        if (bound === false) {
+          this.logger.warn('Invalid address or address-key binding on session restore, ignoring stale session');
+          this.connectionInfo = { isConnected: false };
+          return { ...this.connectionInfo };
         }
+        if (bound === null) this.logger.warn('Address derivation check skipped (crypto unavailable)');
 
         const balanceInfo = validateBalance(result.balance) ?? createDefaultBalance();
         const networkInfo = validateNetworkInfo(result.networkInfo)
@@ -800,8 +800,15 @@ export class ZeroXIOWallet extends EventEmitter {
 
       const sv = this._sessionVersion;
       const extResult = await this.communicator.sendRequest('getBalance', { forceRefresh });
-      publicBalance = parseFloat(extResult.balance || '0');
-      privateBalance = parseFloat(extResult.privateBalance || '0');
+      const read = validateBalance({
+        public: extResult.balance || 0,
+        private: extResult.privateBalance || 0,
+      });
+      if (!read) {
+        throw new ZeroXIOWalletError(ErrorCode.UNKNOWN_ERROR, 'Wallet returned an invalid balance');
+      }
+      publicBalance = read.public;
+      privateBalance = read.private ?? 0;
 
       this.logger.log('Balance fetched from extension:', { public: publicBalance });
 
@@ -1005,8 +1012,8 @@ export class ZeroXIOWallet extends EventEmitter {
     if (callData.amount != null && callData.amountOct != null) {
       throw new ZeroXIOWalletError(ErrorCode.INVALID_AMOUNT, 'Contract call amount: pass amount or amountOct, not both');
     }
-    if (callData.amount != null) {
-      this.assertExactOCTAmount(callData.amount, 'Contract call amount');
+    if (callData.amount != null && !isRawMicroAmount(callData.amount, true)) {
+      throw new ZeroXIOWalletError(ErrorCode.INVALID_AMOUNT, 'Contract call amount must be whole micro-OCT');
     }
     if (callData.amountOct != null) {
       this.assertExactOCTAmount(callData.amountOct, 'Contract call amount');
@@ -2031,28 +2038,41 @@ export class ZeroXIOWallet extends EventEmitter {
   }
 
   private handleAccountChanged(data: { address: string; balance?: Balance; publicKey?: string; canSign?: unknown }): void {
-    ++this._sessionVersion;
+    if (!data || !isValidAddress(data.address)) {
+      this.logger.warn('Ignoring accountChanged with an invalid address');
+      return;
+    }
+    const sv = ++this._sessionVersion;
+    if (data.publicKey == null) {
+      this.applyAccountChange(data);
+      return;
+    }
+    void verifyAddressBinding(data.address, data.publicKey).then((bound) => {
+      if (this._sessionVersion !== sv) return;
+      if (bound === false) {
+        this.logger.warn('Ignoring accountChanged: the public key does not derive to the address');
+        return;
+      }
+      this.applyAccountChange(data);
+    });
+  }
+
+  private applyAccountChange(data: { address: string; balance?: Balance; publicKey?: string; canSign?: unknown }): void {
     const previousAddress = this.connectionInfo.address;
     const canSign = canSignOf(data.canSign);
 
     this.connectionInfo.address = data.address;
     this.connectionInfo.publicKey = data.publicKey;
     this.connectionInfo.canSign = canSign;
-    if (data.balance) {
-      const validated = validateBalance(data.balance);
-      if (validated) {
-        this.connectionInfo.balance = validated;
-      } else {
-        this.connectionInfo.balance = undefined;
-      }
-    }
+    const validated = data.balance ? validateBalance(data.balance) : null;
+    if (data.balance) this.connectionInfo.balance = validated ?? undefined;
 
     const accountChangedEvent: AccountChangedEvent = {
       previousAddress,
       newAddress: data.address,
       publicKey: data.publicKey,
       canSign,
-      balance: data.balance ?? this.connectionInfo.balance!
+      balance: validated ?? this.connectionInfo.balance!
     };
 
     this.emit('accountChanged', accountChangedEvent);
@@ -2166,7 +2186,7 @@ export class ZeroXIOWallet extends EventEmitter {
       this.assertExactOCTAmount(amountOct, label);
       return octToMicro(amountOct);
     }
-    if (amount == null || !isValidAmount(amount)) {
+    if (amount == null || !isRawMicroAmount(amount)) {
       throw new ZeroXIOWalletError(ErrorCode.TRANSACTION_FAILED, `Invalid ${label.toLowerCase()}`);
     }
     return amount;

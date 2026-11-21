@@ -257,7 +257,7 @@ try {
 
 ### 5. Amounts and units
 
-The wallet and the RFC-O-1 provider count in raw micro-OCT: one OCT is 1000000 units. The SDK never rescales a raw field, so what a dapp sends today keeps working. Where you would rather write OCT, use the OCT field and the SDK converts it with exact decimal arithmetic.
+The wallet and the RFC-O-1 provider count in raw micro-OCT: one OCT is 1000000 units. The SDK never rescales a raw field, so what a dapp sends today keeps working. A raw field must be whole units: a string of digits or an integer; anything else is refused before the wallet is asked. Where you would rather write OCT, use the OCT field and the SDK converts it with exact decimal arithmetic.
 
 | Method | Raw field (sent unchanged) | OCT field (converted by the SDK) |
 |--------|----------------------------|----------------------------------|
